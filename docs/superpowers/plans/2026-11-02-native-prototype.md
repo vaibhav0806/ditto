@@ -11,7 +11,7 @@ Swift Package Manager; macOS 13+; AppKit/ApplicationServices/Carbon; system SQLi
 - [x] Core completion: write failing ranking and Unicode/session validation tests; implement matching and bounded session verification; run `swift run DittoTests`; commit/push.
 - [x] Persistence: write temporary SQLite tests covering reopen, duplicate promotion, pin/delete, expiration and retention; implement `HistoryStore`; run full suite; commit/push.
 - [x] Native app: menu/status, permission onboarding, pasteboard polling, hotkey, event tap, accessibility snapshot/guarded insertion, compact panel and history. Build with `swift build`; test pure policies and targeted integration boundaries; commit/push.
-- [ ] Finish: settings, local app bundle script, built-in practice field, launch smoke check and documentation; `swift run DittoTests`, `swift build -c release`, bundle verification; commit/push.
+- [x] Finish: settings, local app bundle script, built-in practice field, launch smoke check and documentation; `swift run DittoTests`, `swift build -c release`, bundle verification; commit/push.
 
 ## Review focus
 
@@ -32,3 +32,5 @@ Wrong destination after focus changes; stale text/ranges; non-BMP Unicode and co
 - Self-review: checked all acceptance criteria against code and evidence. App-specific insertion, undo, composition and multi-display behavior remain unverified pending permissions. No delegated reviewer was used, as requested.
 - Final review fixed Unicode normalization outside a query: Swift's canonically equivalent string comparison can hide changed UTF-16 offsets. A regression check failed first; prefix/suffix/query and pre-write text comparisons now require exact code units. Suite: 12 tests, 0 failures.
 - Added standard macOS Edit/Quit menu actions so the practice editor, history search and settings retain normal text shortcuts.
+
+- Packaging and documentation complete: `scripts/build-app.sh`, Info.plist, README and verification checklist. Native permissions and real-app insertion remain explicitly unverified; this is the first local prototype, not a distributed release.
