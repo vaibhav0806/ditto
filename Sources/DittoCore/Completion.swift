@@ -55,12 +55,14 @@ public struct CompletionSession {
     }
 
     public func validates(text: String, selection: NSRange) -> Bool {
-        queryIn(text: text, selection: selection) == query
+        guard let observed = queryIn(text: text, selection: selection) else { return false }
+        return observed.utf16.elementsEqual(query.utf16)
     }
 
     private func queryIn(text: String, selection: NSRange) -> String? {
         guard selection.length == 0,
-              text.hasPrefix(prefix), text.hasSuffix(suffix),
+              text.utf16.starts(with: prefix.utf16),
+              text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16),
               text.utf16.count >= prefix.utf16.count + suffix.utf16.count else { return nil }
         let length = text.utf16.count - prefix.utf16.count - suffix.utf16.count
         guard selection.location == anchor + length,

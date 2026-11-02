@@ -8,9 +8,9 @@ Swift Package Manager; macOS 13+; AppKit/ApplicationServices/Carbon; system SQLi
 
 ## Tasks
 
-- [ ] Core completion: write failing ranking and Unicode/session validation tests; implement matching and bounded session verification; run `swift run DittoTests`; commit/push.
-- [ ] Persistence: write temporary SQLite tests covering reopen, duplicate promotion, pin/delete, expiration and retention; implement `HistoryStore`; run full suite; commit/push.
-- [ ] Native app: menu/status, permission onboarding, pasteboard polling, hotkey, event tap, accessibility snapshot/guarded insertion, compact panel and history. Build with `swift build`; test pure policies and targeted integration boundaries; commit/push.
+- [x] Core completion: write failing ranking and Unicode/session validation tests; implement matching and bounded session verification; run `swift run DittoTests`; commit/push.
+- [x] Persistence: write temporary SQLite tests covering reopen, duplicate promotion, pin/delete, expiration and retention; implement `HistoryStore`; run full suite; commit/push.
+- [x] Native app: menu/status, permission onboarding, pasteboard polling, hotkey, event tap, accessibility snapshot/guarded insertion, compact panel and history. Build with `swift build`; test pure policies and targeted integration boundaries; commit/push.
 - [ ] Finish: settings, local app bundle script, built-in practice field, launch smoke check and documentation; `swift run DittoTests`, `swift build -c release`, bundle verification; commit/push.
 
 ## Review focus
@@ -27,3 +27,8 @@ Wrong destination after focus changes; stale text/ranges; non-BMP Unicode and co
 - Native app compiles. Added session-only event interception, AX text/range revalidation, local clipboard capture (opt-in), setup, practice field, history filtering/preview/pin/delete/copy, capture settings, and login controls. Keyboard/confidential-marker policies passed after expected failing checks (11 total tests).
 - Ruling: initial insertion uses AXSelectedText directly and never alters the pasteboard. Unsupported elements use explicit Copy. Terminal/shell autocomplete is not claimed until verified. Exact native undo semantics remain a real-app compatibility check.
 - History row clicks select for preview; Enter or the labeled Paste button accepts. This keeps preview browsing non-destructive. Fallback history uses Enter/Copy to copy explicitly.
+
+- Local release bundle was built and verified; bundle smoke check succeeded with setup visible and capture off. Inspected Setup, Practice and empty History using native UI tools; Escape dismissed History. No permissions were granted. App-targeted synthetic keypress did not demonstrate the global shortcut, so that remains explicitly unverified.
+- Self-review: checked all acceptance criteria against code and evidence. App-specific insertion, undo, composition and multi-display behavior remain unverified pending permissions. No delegated reviewer was used, as requested.
+- Final review fixed Unicode normalization outside a query: Swift's canonically equivalent string comparison can hide changed UTF-16 offsets. A regression check failed first; prefix/suffix/query and pre-write text comparisons now require exact code units. Suite: 12 tests, 0 failures.
+- Added standard macOS Edit/Quit menu actions so the practice editor, history search and settings retain normal text shortcuts.

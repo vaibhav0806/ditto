@@ -69,7 +69,7 @@ struct TextTarget {
         // Validate the newly selected range and unchanged text before the one mutating write.
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
               let current = Self.focused(), CFEqual(current.element, element),
-              let selected = self.snapshot(), selected.text == snapshot.text,
+              let selected = self.snapshot(), selected.text.utf16.elementsEqual(snapshot.text.utf16),
               selected.selection == session.replacementRange else { return false }
         let result = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
         if result != .success {

@@ -37,6 +37,15 @@ final class CompletionTests {
         expectFalse(session.observe(text: "Before", selection: NSRange(location: 6, length: 0)))
     }
 
+    func testNormalizationChangesOutsideQueryAreRejected() throws {
+        var session = try unwrap(CompletionSession(text: "é ", selection: NSRange(location: 2, length: 0)))
+        expectFalse(session.observe(text: "e\u{301} loc", selection: NSRange(location: 6, length: 0)))
+        expectTrue(session.observe(text: "é loc", selection: NSRange(location: 5, length: 0)))
+        var querySession = try unwrap(CompletionSession(text: "", selection: NSRange(location: 0, length: 0)))
+        expectTrue(querySession.observe(text: "é", selection: NSRange(location: 1, length: 0)))
+        expectFalse(querySession.validates(text: "e\u{301}", selection: NSRange(location: 2, length: 0)))
+    }
+
     func testPreexistingSelectionsAndInvalidRangesAreRejected() {
         expectNil(CompletionSession(text: "text", selection: NSRange(location: 0, length: 4)))
         expectNil(CompletionSession(text: "text", selection: NSRange(location: 9, length: 0)))

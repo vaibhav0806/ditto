@@ -90,6 +90,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func installMenu() {
+        let main = NSMenu()
+        let applicationItem = NSMenuItem()
+        let applicationMenu = NSMenu()
+        let quitItem = NSMenuItem(title: "Quit Ditto", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.target = NSApp
+        applicationMenu.addItem(quitItem)
+        applicationItem.submenu = applicationMenu
+        main.addItem(applicationItem)
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+        main.addItem(editItem)
+        NSApp.mainMenu = main
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Ditto")
         statusItem.button?.toolTip = "Ditto · ⌥⌘V"
@@ -191,10 +212,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return false
         }
         invalidSnapshots = 0
-        if session.query != self.session?.query {
-            self.session = session
-            updateResults(query: session.query)
-        }
+        let previousQuery = self.session?.query
+        self.session = session
+        if session.query != previousQuery { updateResults(query: session.query) }
         return true
     }
 
@@ -222,7 +242,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pollTimer?.invalidate()
         pollTimer = nil
         overlay.model.canInsert = session != nil
-        overlay.model.message = session == nil ? "This field does not expose safe text replacement. Copy an item, then paste it with ⌘V." : "Typing here filters history; your destination text stays unchanged."
+        if session != nil {
+            overlay.model.message = "Typing here filters history; your destination text stays unchanged."
+        } else if !AXIsProcessTrusted() {
+            overlay.model.message = "Accessibility is not enabled. Copy an item, then paste with ⌘V. Open Setup to enable text completion."
+        } else {
+            overlay.model.message = "This field does not expose safe text replacement. Place an insertion cursor, or copy an item and paste with ⌘V."
+        }
         updateResults(query: session?.query ?? "")
         overlay.show(history: true, caret: target?.caret)
     }
