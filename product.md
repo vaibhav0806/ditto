@@ -95,6 +95,10 @@ Images/files, rich-text insertion, sync, AI rewriting, semantic retrieval, snipp
 - Keep the existing portfolio repository untouched.
 - Never include credentials, private clipboard contents, or machine-specific permission databases in source control.
 
+## OSS research direction (2026-11-02)
+
+The [macOS OSS input research](docs/research/2026-11-02-macos-oss-input-research.md) surveys 38 public projects and records source-level references, terminal/chat limitations, and the user's actual zsh-autosuggestions setup. Its recommendation is to retain a normal menu bar app with an explicit query session, caret overlay, and multiple insertion routes. Installing an input source or changing shell startup files is not an established requirement. A failed generic Accessibility range adapter is not evidence that an app cannot support completion. This is a research recommendation, not an implemented compatibility fix; the agreed UX and real-app handoff gate still apply.
+
 ## Handoff gate after initial prototype feedback
 
 The initial prototype was rejected: its default large history popup was not the agreed autocomplete UX, capture had not been verified live, and compilation/unit checks were incorrectly treated as enough for a usable handoff. Before another usable-app handoff, record actual native end-to-end results for copy → capture → invoke → type → accept, candidate cycling, history, Escape, stale focus/app switches, and the intended destination apps. A failed or untested path remains explicitly incomplete; a smoke check does not satisfy this gate.
