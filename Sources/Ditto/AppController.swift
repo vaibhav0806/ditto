@@ -334,7 +334,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func move(_ delta: Int) {
         let count = overlay.model.entries.count
         guard count > 0 else { return }
-        overlay.model.selectedIndex = (overlay.model.selectedIndex + delta + count) % count
+        overlay.model.selectedIndex = browsing ? HistoryPresentation.selectionIndex(current: overlay.model.selectedIndex, delta: delta, count: count) : (overlay.model.selectedIndex + delta + count) % count
         if !browsing { renderCompletion() }
     }
 
@@ -349,6 +349,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pollTimer?.invalidate()
         pollTimer = nil
         overlay.model.canInsert = session != nil && session?.isKeystrokeTracked == false
+        overlay.model.canReturnToCompletion = session != nil
+        let destination = target.flatMap { NSRunningApplication(processIdentifier: $0.pid) }
+        overlay.model.destinationName = destination?.localizedName ?? ""
+        overlay.model.destinationBundleID = destination?.bundleIdentifier ?? ""
         if session?.isKeystrokeTracked == true {
             overlay.model.message = "Select an item to copy. Escape returns to autocomplete."
         } else if session != nil {

@@ -37,7 +37,7 @@ Files: add Sources/DittoCore/HistoryPresentation.swift and Tests/DittoCoreTests/
 
 ### 2. Native search UI
 
-Files: add Sources/Ditto/HistoryPanel.swift; replace old expanded UI in Sources/Ditto/Overlay.swift; wire destination labels and history-only boundary selection in Sources/Ditto/AppController.swift.
+Files: add Sources/DittoUI/HistoryPanel.swift; replace old expanded UI in Sources/Ditto/Overlay.swift; wire destination labels and history-only boundary selection in Sources/Ditto/AppController.swift.
 
 - [ ] Implement the native header, material, 34 pt accessible table rows, source icons, independently selectable preview, source/time/size metadata and explicit empty states.
 - [ ] Implement native Actions/Command-K, Copy, Pin and Delete using existing callbacks. Keep all destructive actions explicit and preserve text-field Copy behavior.
@@ -55,3 +55,6 @@ Files: existing native verification infrastructure, docs/verification.md and pro
 
 - Native NSTableView/NSTextView are used rather than a new web view or a new package; they supply selection/accessibility and preserve selectable original preview text.
 - Opening/closing animations are optional polish; correctness, reduced-motion behavior and stable placement take priority over scale animation in the first native refresh.
+
+- Ruling: use a small DittoUI target with OverlayModel/HistoryPanelView and a NativeUI test executable. This lets tests exercise the actual AppKit controls without adding a test-only fixture mode to the product or touching the user's clipboard/history. The signed-app E2E remains a separate verification layer.
+- Ruling: defer hidden-view refreshes until history is shown, and ignore hidden-table selection notifications, so the expanded view cannot interfere with active inline autocomplete. Native UI regressions cover both boundaries.
