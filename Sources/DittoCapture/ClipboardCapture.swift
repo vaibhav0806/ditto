@@ -13,6 +13,7 @@ public final class ClipboardCapture {
     private var timer: Timer?
     private var lastChange: Int
     private var lastPrune = Date.distantPast
+    private var ignoredChanges: Set<Int> = []
     public var onChange: (() -> Void)?
     public var onStatus: ((String) -> Void)?
 
@@ -50,9 +51,17 @@ public final class ClipboardCapture {
         poll()
     }
 
+    public func ignore(changeCount: Int) { ignoredChanges.insert(changeCount) }
+
     public func poll() {
         let changed = board.changeCount != lastChange
-        if changed { lastChange = board.changeCount; onChange?() }
+        if changed {
+            lastChange = board.changeCount
+            let ownWrite = ignoredChanges.contains(lastChange)
+            ignoredChanges = Set(ignoredChanges.filter { $0 > lastChange })
+            if ownWrite { return }
+            onChange?()
+        }
         if Date().timeIntervalSince(lastPrune) > 60 {
             do { try store.prune(retentionDays: retentionDays()); lastPrune = Date() }
             catch { onStatus?("History cleanup failed: \(error.localizedDescription)") }

@@ -44,3 +44,36 @@ func testCaptureAccessAndInvocationDefaults() {
     expectEqual(InputPolicy.invocation(explicitHistory: false, canComplete: true), .completion)
     expectEqual(InputPolicy.invocation(explicitHistory: true, canComplete: false), .history)
 }
+
+func testPasteboardLeasePreservesNewUserCopiesAndRichTypes() throws {
+    let board = NSPasteboard(name: .init("Ditto.Lease.Tests.\(UUID().uuidString)"))
+    defer { board.releaseGlobally() }
+    let rich = Data([1, 2, 3, 4])
+    board.clearContents()
+    board.setString("original", forType: .string)
+    board.setData(rich, forType: .init("test.rich"))
+    let lease = try PasteboardLease(board: board)
+    lease.write("selected")
+    expectEqual(board.string(forType: .string), "selected")
+    expectTrue(lease.restoreIfUnchanged())
+    expectEqual(board.string(forType: .string), "original")
+    expectEqual(board.data(forType: .init("test.rich")), rich)
+    let second = try PasteboardLease(board: board)
+    second.write("older selection")
+    board.clearContents()
+    board.setString("new user copy", forType: .string)
+    expectFalse(second.restoreIfUnchanged())
+    expectEqual(board.string(forType: .string), "new user copy")
+}
+
+func testPasteboardChangeBeforeWriteIsNotOverwritten() throws {
+    let board = NSPasteboard(name: .init("Ditto.BeforeWrite.Tests.\(UUID().uuidString)"))
+    defer { board.releaseGlobally() }
+    board.clearContents()
+    board.setString("original", forType: .string)
+    let lease = try PasteboardLease(board: board)
+    board.clearContents()
+    board.setString("new user copy", forType: .string)
+    lease.write("stale selection")
+    expectEqual(board.string(forType: .string), "new user copy")
+}

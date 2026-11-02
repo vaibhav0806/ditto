@@ -37,8 +37,16 @@ public struct CompletionSession {
     private let prefix: String
     private let suffix: String
     private let anchor: Int
+    public let isKeystrokeTracked: Bool
     public private(set) var query = ""
     public var replacementRange: NSRange { NSRange(location: anchor, length: query.utf16.count) }
+
+    public init() {
+        prefix = ""
+        suffix = ""
+        anchor = 0
+        isKeystrokeTracked = true
+    }
 
     public init?(text: String, selection: NSRange) {
         guard selection.length == 0, let range = Range(selection, in: text),
@@ -46,6 +54,28 @@ public struct CompletionSession {
         prefix = String(text[..<range.lowerBound])
         suffix = String(text[range.upperBound...])
         anchor = selection.location
+        isKeystrokeTracked = false
+    }
+
+    public mutating func recordTypedText(_ text: String) -> Bool {
+        guard isKeystrokeTracked, !text.isEmpty, query.utf16.count + text.utf16.count <= 512,
+              text.unicodeScalars.allSatisfy({ $0.properties.generalCategory != .control && !CharacterSet.newlines.contains($0) }) else { return false }
+        query += text
+        return true
+    }
+
+    public mutating func recordBackspace() -> Bool {
+        guard isKeystrokeTracked, !query.isEmpty else { return false }
+        query.removeLast()
+        return true
+    }
+
+    public func insertionSuffix(for candidate: String) -> String? {
+        guard candidate.utf16.count <= 4096, candidate.utf16.starts(with: query.utf16),
+              candidate.unicodeScalars.allSatisfy({ $0.properties.generalCategory != .control && !CharacterSet.newlines.contains($0) }),
+              let range = Range(NSRange(location: query.utf16.count, length: 0), in: candidate),
+              range.lowerBound == candidate.endIndex || candidate.indices.contains(range.lowerBound) else { return nil }
+        return String(candidate[range.lowerBound...])
     }
 
     public mutating func observe(text: String, selection: NSRange) -> Bool {
@@ -60,7 +90,7 @@ public struct CompletionSession {
     }
 
     private func queryIn(text: String, selection: NSRange) -> String? {
-        guard selection.length == 0,
+        guard !isKeystrokeTracked, selection.length == 0,
               text.utf16.starts(with: prefix.utf16),
               text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16),
               text.utf16.count >= prefix.utf16.count + suffix.utf16.count else { return nil }

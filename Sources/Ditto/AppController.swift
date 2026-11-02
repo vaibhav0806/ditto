@@ -4,8 +4,11 @@ import Carbon
 import Combine
 import DittoCore
 import DittoCapture
+import OSLog
+import DittoE2E
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let logger = Logger(subsystem: "com.vaibhav0806.ditto", category: "Completion")
     private var statusItem: NSStatusItem!
     private var store: HistoryStore!
     private let preferences: Preferences
@@ -16,8 +19,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var capture: ClipboardCapture!
     private var target: TextTarget?
     private var session: CompletionSession?
+    private var expectedQuery = CompletionSession()
+    private var lastTypedInput = Date.distantPast
     private var candidates: [ClipboardEntry] = []
     private var browsing = false
+    private var handlingKeys = false
     private var generation = UUID()
     private var pollTimer: Timer?
     private var invalidSnapshots = 0
@@ -27,6 +33,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var activationObserver: NSObjectProtocol?
     private var lockObserver: NSObjectProtocol?
     private var localKeys: Any?
+    private var e2e: NativeE2E?
     private var subscriptions: Set<AnyCancellable> = []
     private let smoke = CommandLine.arguments.contains("--smoke-test")
     private var smokeDirectory: URL?
@@ -68,6 +75,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         keyboard.onKey = { [weak self] in self?.handleKey($0) ?? false }
         keyboard.onClick = { [weak self] in
             guard let self, self.session != nil, !self.browsing else { return }
+            self.handlingKeys = false
             DispatchQueue.main.async { self.cancel() }
         }
         keyboard.onDisabled = { [weak self] in DispatchQueue.main.async { self?.cancel() } }
@@ -83,7 +91,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let self, self.session != nil else { return }
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            if app?.processIdentifier != self.target?.pid && app?.processIdentifier != ProcessInfo.processInfo.processIdentifier { self.cancel() }
+            let openingHistory = self.browsing && app?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+            if app?.processIdentifier != self.target?.pid && !openingHistory { self.cancel() }
         }
         lockObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.cancel() }
         preferences.$captureEnabled.dropFirst().sink { [weak self] _ in self?.cancel() }.store(in: &subscriptions)
@@ -98,6 +107,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSApp.terminate(nil)
             }
         } else if !preferences.captureEnabled || !AXIsProcessTrusted() { showSetup() }
+        if let index = CommandLine.arguments.firstIndex(of: "--native-e2e"), CommandLine.arguments.indices.contains(index + 1) {
+            let appIndex = CommandLine.arguments.firstIndex(of: "--e2e-app")
+            let appID = appIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil } ?? "com.apple.TextEdit"
+            e2e = NativeE2E(output: URL(fileURLWithPath: CommandLine.arguments[index + 1]), appID: appID)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.e2e?.start() }
+        }
     }
 
     private func installMenu() {
@@ -106,6 +121,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let applicationMenu = NSMenu()
         let quitItem = NSMenuItem(title: "Quit Ditto", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = NSApp
+        let complete = NSMenuItem(title: "Complete at Cursor", action: #selector(menuCompletion), keyEquivalent: "v")
+        complete.keyEquivalentModifierMask = [.command, .option]
+        complete.target = self
+        applicationMenu.addItem(complete)
+        applicationMenu.addItem(.separator())
         applicationMenu.addItem(quitItem)
         applicationItem.submenu = applicationMenu
         main.addItem(applicationItem)
@@ -150,6 +170,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item)
     }
 
+    @objc private func menuCompletion() { invoke() }
     @objc private func menuHistory() { invoke(openList: true) }
     private func enableCapture() {
         preferences.captureEnabled = true
@@ -162,16 +183,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func invoke(openList: Bool = false) {
+        logger.notice("Invocation history=\(openList) active=\(NSApp.isActive) accessibility=\(AXIsProcessTrusted())")
         cancel()
         guard !IsSecureEventInputEnabled() else { return }
         guard !preferences.exclusions.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") else { return }
         do { try store.prune(retentionDays: preferences.retentionDays); candidates = try store.entries() }
         catch { setupModel.status = error.localizedDescription; showSetup(); return }
-        if let target = TextTarget.focused(), let snapshot = target.snapshot(), target.supportsReplacement,
-           let session = CompletionSession(text: snapshot.text, selection: snapshot.selection) {
+        if let target = TextTarget.focused() {
             self.target = target
-            self.session = session
+            let snapshot = target.snapshot()
+            let forceEventQuery = CommandLine.arguments.contains("--native-e2e") && CommandLine.arguments.contains("--e2e-event-query")
+            if target.supportsReplacement && !forceEventQuery, let snapshot {
+                self.session = CompletionSession(text: snapshot.text, selection: snapshot.selection)
+            } else if CGPreflightPostEventAccess(), snapshot?.selection.length ?? 0 == 0 {
+                self.session = CompletionSession()
+            }
         }
+        logger.notice("Destination ready=\(self.session != nil) native=\(self.target?.isNative == true)")
         switch InputPolicy.invocation(explicitHistory: openList, canComplete: session != nil) {
         case .history:
             expandHistory()
@@ -181,11 +209,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         case .completion: break
         }
+        guard target?.caret != nil else {
+            cancel()
+            showBriefNotice("Cursor position unavailable · open history from Ditto’s menu")
+            return
+        }
         guard target?.isNative == true || keyboard.start() else {
             cancel()
             showBriefNotice("Allow session keyboard controls in Ditto → Setup")
             return
         }
+        handlingKeys = true
         overlay.model.canInsert = true
         overlay.model.message = ""
         updateResults(query: "")
@@ -194,25 +228,42 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func handleKey(_ event: CGEvent) -> Bool {
-        guard session != nil, !browsing else { return false }
+        guard session != nil, !browsing, handlingKeys else { return false }
         let flags = event.flags
         let action = InputPolicy.key(code: Int(event.getIntegerValueField(.keyboardEventKeycode)), command: flags.contains(.maskCommand), option: flags.contains(.maskAlternate), control: flags.contains(.maskControl), shift: flags.contains(.maskShift), hasCandidate: overlay.model.selected != nil)
         // Do not make AX calls or perform a text mutation from the event-tap callback.
         let token = generation
         switch action {
         case .accept:
+            handlingKeys = false
             DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.accept() } }
             return true
         case .move(let delta):
             DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.move(delta) } }
             return true
         case .history:
+            handlingKeys = false
             DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.expandHistory() } }
             return true
         case .dismiss, .cancelAndPass:
+            handlingKeys = false
             DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.cancel() } }
             return action == .dismiss
         case .typeNormally:
+            if let session {
+                let code = event.getIntegerValueField(.keyboardEventKeycode)
+                var expected = expectedQuery
+                let valid = code == 51 ? expected.recordBackspace() : expected.recordTypedText(SyntheticInput.text(from: event))
+                if valid {
+                    expectedQuery = expected
+                    lastTypedInput = Date()
+                    if session.isKeystrokeTracked { self.session = expected }
+                } else {
+                    handlingKeys = false
+                    DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.cancel() } }
+                    return false
+                }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in if self?.generation == token { self?.refreshSession() } }
             return false
         }
@@ -221,17 +272,30 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @discardableResult
     private func refreshSession() -> Bool {
         guard !browsing, var session, let target else { return false }
-        guard !IsSecureEventInputEnabled(), target.isFocused() else { cancel(); return false }
+        guard !IsSecureEventInputEnabled(), target.isFocused() else {
+            logger.notice("Session cancelled: secure input or destination lost focus")
+            cancel()
+            return false
+        }
         if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(), let value = TISGetInputSourceProperty(source, kTISPropertyInputSourceType) {
             let type = Unmanaged<CFString>.fromOpaque(value).takeUnretainedValue() as String
             if type == kTISTypeKeyboardInputMode as String { cancel(); return false }
         }
+        if session.isKeystrokeTracked {
+            updateResults(query: session.query)
+            overlay.showCompletion(caret: target.caret, font: target.font)
+            return true
+        }
         guard let snapshot = target.snapshot(), session.observe(text: snapshot.text, selection: snapshot.selection) else {
             invalidSnapshots += 1
-            if invalidSnapshots >= 2 { cancel() }
+            if invalidSnapshots >= 2 { logger.notice("Session cancelled: destination snapshot changed"); cancel() }
             return false
         }
         invalidSnapshots = 0
+        guard session.query.utf16.elementsEqual(expectedQuery.query.utf16) else {
+            if Date().timeIntervalSince(lastTypedInput) > 0.6 { cancel() }
+            return false
+        }
         let previousQuery = self.session?.query
         self.session = session
         if session.query != previousQuery {
@@ -245,6 +309,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let oldID = query == overlay.model.query ? overlay.model.selected?.id : nil
         overlay.model.query = query
         overlay.model.entries = CompletionMatcher.matches(candidates, query: query)
+        if session?.isKeystrokeTracked == true && !browsing {
+            overlay.model.entries.removeAll { session?.insertionSuffix(for: $0.text) == nil }
+        }
         overlay.model.selectedIndex = overlay.model.entries.firstIndex(where: { $0.id == oldID }) ?? 0
     }
 
@@ -257,7 +324,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func expandHistory() {
         if session != nil, !refreshSession() { cancel(); return }
-        if let session {
+        if let session, !session.isKeystrokeTracked {
             guard let target, target.isFocused(), let snapshot = target.snapshot(),
                   session.validates(text: snapshot.text, selection: snapshot.selection) else { cancel(); return }
         }
@@ -265,8 +332,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         keyboard.stop()
         pollTimer?.invalidate()
         pollTimer = nil
-        overlay.model.canInsert = session != nil
-        if session != nil {
+        overlay.model.canInsert = session != nil && session?.isKeystrokeTracked == false
+        if session?.isKeystrokeTracked == true {
+            overlay.model.message = "Select an item to copy. Escape returns to autocomplete."
+        } else if session != nil {
             overlay.model.message = "Typing here filters history; your destination text stays unchanged."
         } else if !AXIsProcessTrusted() {
             overlay.model.message = "Accessibility is not enabled. Copy an item, then paste with ⌘V. Open Setup to enable text completion."
@@ -277,9 +346,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlay.show(history: true, caret: target?.caret)
     }
 
-    private func accept() {
-        if !browsing, !refreshSession() { cancel(); return }
-        guard let item = overlay.model.selected else { return }
+    private func accept(attempts: Int = 25) {
+        if attempts == 25 { logger.notice("Accept requested history=\(self.browsing)") }
+        if !browsing, !refreshSession() {
+            guard session != nil, attempts > 0 else { cancel(); return }
+            let token = generation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                if self?.generation == token { self?.accept(attempts: attempts - 1) }
+            }
+            return
+        }
+        guard let item = overlay.model.selected else { cancel(); return }
+        if browsing, session?.isKeystrokeTracked == true { copySelected(); return }
         guard let session, let target else { copySelected(); return }
         let wasBrowsing = browsing
         cancel()
@@ -289,7 +367,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             app.activate(options: [.activateIgnoringOtherApps])
             finishInsertion(item: item, target: target, session: session, token: token, attempts: 8)
         } else {
-            if !target.replace(session: session, with: item.text) { insertionFailed() }
+            performInsertion(item: item, target: target, session: session)
         }
     }
 
@@ -297,11 +375,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
             guard let self, self.generation == token else { return }
             if target.isFocused() {
-                if !target.replace(session: session, with: item.text) { self.insertionFailed() }
+                self.performInsertion(item: item, target: target, session: session)
             } else if attempts > 0 {
                 self.finishInsertion(item: item, target: target, session: session, token: token, attempts: attempts - 1)
             } else { self.insertionFailed() }
         }
+    }
+
+    private func performInsertion(item: ClipboardEntry, target: TextTarget, session: CompletionSession) {
+        target.replace(session: session, with: item.text, onClipboardWrite: { [weak self] count in
+            self?.capture.ignore(changeCount: count)
+        }, completion: { [weak self] success in
+            if !success { self?.insertionFailed() }
+        })
     }
 
     private func insertionFailed() {
@@ -333,7 +419,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let token = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self, self.generation == token, let session = self.session,
-                  target.isFocused(), let snapshot = target.snapshot(), session.validates(text: snapshot.text, selection: snapshot.selection), (target.isNative || self.keyboard.start()) else { self?.cancel(); return }
+                  target.isFocused(), self.validates(session, target: target), (target.isNative || self.keyboard.start()) else { self?.cancel(); return }
+            self.handlingKeys = true
             self.overlay.model.message = ""
             self.updateResults(query: session.query)
             self.overlay.showCompletion(caret: target.caret, font: target.font)
@@ -359,6 +446,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlay.onResign = { [weak self] in if self?.browsing == true { self?.cancel() } }
     }
 
+    private func validates(_ session: CompletionSession, target: TextTarget) -> Bool {
+        if session.isKeystrokeTracked { return true }
+        guard let snapshot = target.snapshot() else { return false }
+        return session.validates(text: snapshot.text, selection: snapshot.selection)
+    }
+
     private func modifyHistory(_ mutation: () throws -> Void) {
         do {
             try mutation()
@@ -369,8 +462,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func cancel() {
         generation = UUID()
+        handlingKeys = false
         browsing = false
         session = nil
+        expectedQuery = CompletionSession()
         target = nil
         candidates = []
         pollTimer?.invalidate()

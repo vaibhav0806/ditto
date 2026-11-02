@@ -194,8 +194,9 @@ final class OverlayController {
         content.addSubview(label)
         content.addSubview(hint)
         content.setFrameSize(NSSize(width: max(width, 240), height: lineHeight + 16))
+        let size = content.frame.size
         ghost.contentView = content
-        placeGhost(size: content.frame.size, caret: caret, inline: isPrefix)
+        placeGhost(size: size, caret: caret, inline: isPrefix)
     }
 
     func showNotice(_ message: String, caret: CGRect? = nil) {
@@ -213,8 +214,9 @@ final class OverlayController {
         effect.layer?.masksToBounds = true
         label.frame = NSRect(x: 12, y: 8, width: width - 24, height: 16)
         effect.addSubview(label)
+        let size = effect.frame.size
         ghost.contentView = effect
-        placeGhost(size: effect.frame.size, caret: caret, inline: false)
+        placeGhost(size: size, caret: caret, inline: false)
     }
 
     private func placeGhost(size: NSSize, caret: CGRect?, inline: Bool) {

@@ -34,3 +34,14 @@ Wrong destination after focus changes; stale text/ranges; non-BMP Unicode and co
 - Added standard macOS Edit/Quit menu actions so the practice editor, history search and settings retain normal text shortcuts.
 
 - Packaging and documentation complete: `scripts/build-app.sh`, Info.plist, README and verification checklist. Native permissions and real-app insertion remain explicitly unverified; this is the first local prototype, not a distributed release.
+
+## Research-backed cursor completion iteration
+
+Spec: `product.md`; evidence: `docs/research/2026-11-02-macos-oss-input-research.md`.
+Execute inline, as requested by the user. Keep existing shortcut and explicit-history behavior.
+
+- [x] Reproduce the writable-selection gate in `AppController.invoke` and `TextTarget.focused`.
+- [x] Add failing query-buffer tests, implement bounded event tracking in `CompletionSession`, and preserve exact Unicode boundaries. No blind deletion in fallback.
+- [x] Connect typed-event query tracking, tagged suffix injection, and caret text-marker/previous-glyph fallbacks. Only exact single-line prefix candidates are offered through this path.
+- [x] Exercise the actual global shortcut in TextEdit using the existing opt-in native runner, including a forced event-query route. Verify appearance and actual text separately; record undo behavior rather than assume it.
+- [x] Run automated checks and signed release build; update verification/PRD; commit and push. Do not infer Ghostty or WhatsApp support from another app. Existing computer-use denial for Ghostty remains a live test limitation; no alternate automation bypass.

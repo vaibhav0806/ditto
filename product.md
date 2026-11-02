@@ -34,10 +34,10 @@ These are implementation choices from the UX proposal, rather than separately co
 
 1. Clipboard history is enabled by default when no prior preference exists, following the user’s explicit request to fix capture. Preserve an explicit pause. Copy text normally; capture permitted items silently, recording time and the source app when available.
 2. Put an insertion cursor in a destination and press Option–Command–V.
-3. Record the destination app, focused editable element, insertion range, and the clipboard history snapshot for the session. Do not insert anything.
-4. Show the newest candidate with keyboard hints. Let normal characters pass through to the destination and derive the query from the destination's actual text and selection, rather than assuming key codes equal characters.
+3. Record the destination app, focused editable element, available cursor state, and the clipboard history snapshot for the session. A writable AX selection is not required for the experimental suffix path. Do not insert anything.
+4. Show the newest candidate with keyboard hints. Let normal characters pass through to the destination. Prefer actual destination text/ranges; otherwise track bounded event Unicode during the explicit session, cancelling on unsupported input or navigation. Do not assume US key codes equal characters.
 5. Update candidates as the user types or backspaces. No match leaves a clear, unobtrusive empty state; it does not block normal typing.
-6. On Tab, revalidate the focused element and session range, replace only the session query with the whole candidate, then close. Never send a Return key as part of insertion.
+6. On Tab, revalidate the focused element and session range where available, replace only the session query with the whole candidate, then close. The experimental event-tracked path instead appends an exact single-line suffix without deleting text; arbitrary replacement there remains incomplete. Never send a Return key as part of insertion.
 7. On Command–L, expand history and carry over the query. Its filter can change without modifying the destination. Acceptance still replaces the original session query after revalidating it.
 8. Escape from compact mode preserves the typed query. Changing apps, moving outside the session range, clicking elsewhere, or beginning an unsupported input composition ends the session.
 
@@ -98,6 +98,10 @@ Images/files, rich-text insertion, sync, AI rewriting, semantic retrieval, snipp
 ## OSS research direction (2026-11-02)
 
 The [macOS OSS input research](docs/research/2026-11-02-macos-oss-input-research.md) surveys 38 public projects and records source-level references, terminal/chat limitations, and the user's actual zsh-autosuggestions setup. Its recommendation is to retain a normal menu bar app with an explicit query session, caret overlay, and multiple insertion routes. Installing an input source or changing shell startup files is not an established requirement. A failed generic Accessibility range adapter is not evidence that an app cannot support completion. This is a research recommendation, not an implemented compatibility fix; the agreed UX and real-app handoff gate still apply.
+
+## Experimental event-tracked path (2026-11-02)
+
+A native prototype now avoids requiring writable AX selection for exact-prefix completion. It tracks up to 512 UTF-16 units of query text, offers exact single-line prefix candidates up to 4,096 UTF-16 units, and appends only the suffix. It prefers ordinary paste when readable cursor state supports acknowledgement, otherwise uses tagged Unicode events. It cancels on pointer/navigation/unsupported composition and never synthesizes deletion. Full substring/case-changing replacement and multiline insertion are still restricted to the validated range path. Expanded history remains complete and offers Copy for an event-tracked destination. TextEdit end-to-end checks exercise automatic and forced event-query routes; Ghostty and WhatsApp remain unverified. This is a limited experimental implementation, not a revision of the intended any-app experience or satisfaction of the handoff gate.
 
 ## Handoff gate after initial prototype feedback
 

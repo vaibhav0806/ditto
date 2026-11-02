@@ -2,6 +2,47 @@ import Foundation
 import DittoCore
 
 final class CompletionTests {
+    func testEventQueryTracksTypingWithoutAnAccessibilityDocument() {
+        var session = CompletionSession()
+        expectTrue(session.isKeystrokeTracked)
+        expectTrue(session.recordTypedText("di"))
+        expectTrue(session.recordTypedText("t"))
+        expectEqual(session.query, "dit")
+        expectTrue(session.recordBackspace())
+        expectEqual(session.query, "di")
+        expectEqual(session.insertionSuffix(for: "ditto"), "tto")
+        expectFalse(session.validates(text: "di", selection: NSRange(location: 2, length: 0)))
+    }
+
+    func testEventQueryCannotDeleteBeforeInvocationOrAcceptNonPrefixReplacement() {
+        var session = CompletionSession()
+        expectFalse(session.recordBackspace())
+        expectTrue(session.recordTypedText("dit"))
+        expectNil(session.insertionSuffix(for: "DITTO"))
+        expectNil(session.insertionSuffix(for: "a ditto"))
+        expectNil(session.insertionSuffix(for: "ditto\ncommand"))
+        expectNil(session.insertionSuffix(for: "ditto\tother"))
+        expectNil(session.insertionSuffix(for: "dit" + String(repeating: "x", count: 4096)))
+        expectNil(session.insertionSuffix(for: "dit\u{001B}[31m"))
+        expectFalse(session.recordTypedText(""))
+        expectFalse(session.recordTypedText("\n"))
+        expectFalse(session.recordTypedText(String(repeating: "x", count: 513)))
+        expectEqual(session.query, "dit")
+    }
+
+    func testEventQueryPreservesUnicodeBoundariesAndHandlesNoOpAcceptance() {
+        var session = CompletionSession()
+        expectTrue(session.recordTypedText("👩🏽‍💻"))
+        expectEqual(session.insertionSuffix(for: "👩🏽‍💻 hello"), " hello")
+        expectTrue(session.recordBackspace())
+        expectEqual(session.query, "")
+        expectTrue(session.recordTypedText("e"))
+        expectNil(session.insertionSuffix(for: "e\u{301}clair"))
+        expectTrue(session.recordBackspace())
+        expectTrue(session.recordTypedText("done"))
+        expectEqual(session.insertionSuffix(for: "done"), "")
+    }
+
     func testPrefixOutranksNewerSubstringAndRecencyBreaksTies() {
         let entries = [
             ClipboardEntry(id: "a", text: "a local service", copiedAt: Date(timeIntervalSince1970: 30)),

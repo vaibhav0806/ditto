@@ -1,6 +1,36 @@
 import AppKit
 import Carbon
 
+enum SyntheticInput {
+    static let marker: Int64 = 0x444954544F
+
+    static func events(for text: String) -> [CGEvent]? {
+        guard text.utf16.count <= 4096 else { return nil }
+        var events: [CGEvent] = []
+        let source = CGEventSource(stateID: .privateState)
+        for character in text {
+            let units = Array(String(character).utf16)
+            guard units.count <= 20 else { return nil }
+            for down in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { return nil }
+                event.flags = []
+                event.setIntegerValueField(.eventSourceUserData, value: marker)
+                event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                events.append(event)
+            }
+        }
+        return events
+    }
+
+    static func text(from event: CGEvent) -> String {
+        var length = 0
+        event.keyboardGetUnicodeString(maxStringLength: 0, actualStringLength: &length, unicodeString: nil)
+        var units = [UniChar](repeating: 0, count: length)
+        event.keyboardGetUnicodeString(maxStringLength: units.count, actualStringLength: &length, unicodeString: &units)
+        return String(utf16CodeUnits: units, count: length)
+    }
+}
+
 final class GlobalShortcut {
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
@@ -42,6 +72,7 @@ final class KeyboardMonitor {
                 monitor.onDisabled?()
                 if let tap = monitor.tap { CGEvent.tapEnable(tap: tap, enable: true) }
             } else if type == .keyDown {
+                if event.getIntegerValueField(.eventSourceUserData) == SyntheticInput.marker { return Unmanaged.passUnretained(event) }
                 if monitor.onKey?(event) == true { return nil }
             } else {
                 monitor.onClick?()

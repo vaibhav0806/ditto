@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Ditto E2E editor</title>
+<style>body{background:#181a1c;color:#eee;font:16px system-ui;margin:40px}textarea,input,[contenteditable]{display:block;background:#24272a;color:#eee;border:1px solid #666;border-radius:8px;font:16px monospace;padding:16px;margin:12px 0 28px;width:80%}textarea{height:150px}p{color:#aaa}[contenteditable]{white-space:pre-wrap}</style>
+<h1>Ditto E2E editor</h1><p>Disposable local fixture. Nothing is sent anywhere.</p>
+<label for="plain">Plain textarea</label><textarea id="plain" spellcheck="false">Browser </textarea>
+<label for="single">Single-line input</label><input id="single" value="Input ">
+<label for="rich">Contenteditable</label><div id="rich" contenteditable="true">Rich </div>
+<label for="secure">Password field (completion must stay disabled)</label><input id="secure" type="password" autocomplete="off">
+<script>document.querySelectorAll('textarea,input,[contenteditable]').forEach(el=>el.addEventListener('keydown',e=>{if(e.key==='Enter')document.body.dataset.enterCount=String(Number(document.body.dataset.enterCount||0)+1)}));window.addEventListener('load',()=>{let el=document.querySelector('#plain');el.focus();el.setSelectionRange(el.value.length,el.value.length)});</script></html>
