@@ -23,3 +23,4 @@ Wrong destination after focus changes; stale text/ranges; non-BMP Unicode and co
 - Native Swift command-line tools are installed; full Xcode is not selected. Package/build workflow must work without Xcode.
 - A small candidate panel is the first implementation; exact ghost-text rendering is deferred in the PRD.
 - Ruling: Command Line Tools lack both XCTest and Swift Testing. Use a dependency-free `DittoTests` executable (`swift run DittoTests`) rather than require an Xcode installation or fetch a test framework. Initial tests failed on missing behavior before implementation. Matching/session tests now pass, including rejection of a cursor inside a surrogate pair.
+- Core completion: complete, 5 checks passed. SQLite persistence: implemented after four expected failing integration checks; 9 total checks now pass. Local DB is mode 0600; capture is bounded and SQL uses bound values.
