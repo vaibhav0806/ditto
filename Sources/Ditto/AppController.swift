@@ -255,6 +255,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return action == .dismiss
         case .typeNormally:
             overlay.hideForTyping()
+            placeholderBackground = nil
+            maskRequestID = nil
+            maskAttempted = false
             if let session {
                 let code = event.getIntegerValueField(.keyboardEventKeycode)
                 var expected = expectedQuery

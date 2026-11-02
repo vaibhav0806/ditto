@@ -84,6 +84,15 @@ struct TextTarget {
     }
 
     func snapshot() -> TextSnapshot? {
+        guard let snapshot = rawSnapshot() else { return nil }
+        if snapshot.text == "\n", snapshot.selection == NSRange(location: 0, length: 0),
+           placeholderElement(for: snapshot) != nil || emptyParagraphBounds(for: snapshot) != nil {
+            return TextSnapshot(text: "", selection: snapshot.selection)
+        }
+        return snapshot
+    }
+
+    private func rawSnapshot() -> TextSnapshot? {
         if let nativeView { return TextSnapshot(text: nativeView.string, selection: nativeView.selectedRange()) }
         guard let element, let text = Self.attribute(element, kAXValueAttribute) as? String,
               text.utf16.count <= 100_000,
@@ -101,19 +110,23 @@ struct TextTarget {
             return CGRect(x: rect.minX, y: top - rect.maxY, width: max(1, rect.width), height: rect.height)
         }
         guard let element else { return nil }
+        if let snapshot = rawSnapshot(), let paragraph = emptyParagraphBounds(for: snapshot) { return paragraph }
+        if let placeholder = placeholderElement(), let rect = Self.bounds(placeholder), rect.height > 0, rect.height <= 64 {
+            return CGRect(x: rect.minX, y: rect.minY, width: 1, height: rect.height)
+        }
         var range = CFRange(location: snapshot()?.selection.location ?? 0, length: 0)
         var bounds: CFTypeRef?
         var rect = CGRect.zero
         if let value = AXValueCreate(.cfRange, &range),
            AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, value, &bounds) == .success,
            let bounds, CFGetTypeID(bounds) == AXValueGetTypeID(),
-           AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0 {
+           AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0, rect.height <= 64 {
             return rect
         }
         if let marker = Self.attribute(element, "AXSelectedTextMarkerRange"),
            AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString, marker, &bounds) == .success,
            let bounds, CFGetTypeID(bounds) == AXValueGetTypeID(),
-           AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0 {
+           AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0, rect.height <= 64 {
             return rect
         }
         if range.location > 0 {
@@ -127,6 +140,48 @@ struct TextTarget {
             }
         }
         return nil
+    }
+
+    private func placeholderElement() -> AXUIElement? {
+        guard let snapshot = rawSnapshot() else { return nil }
+        return placeholderElement(for: snapshot)
+    }
+
+    private func emptyParagraphBounds(for snapshot: TextSnapshot) -> CGRect? {
+        guard let element, snapshot.text == "\n", snapshot.selection == NSRange(location: 0, length: 0),
+              let children = Self.attribute(element, kAXChildrenAttribute) as? [AXUIElement], children.count == 1,
+              Self.attribute(children[0], kAXRoleAttribute) as? String == kAXGroupRole,
+              let field = Self.bounds(element), let line = Self.bounds(children[0]), field.contains(line),
+              line.height > 0, line.height <= 64, line.height < field.height else { return nil }
+        return CGRect(x: line.minX, y: line.minY, width: 1, height: line.height)
+    }
+
+    private func placeholderElement(for snapshot: TextSnapshot) -> AXUIElement? {
+        guard let element, InputPolicy.isVisuallyBlank(snapshot.text),
+              let placeholder = Self.attribute(element, kAXPlaceholderValueAttribute) as? String, !placeholder.isEmpty,
+              let parent = Self.attribute(element, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID(),
+              let siblings = Self.attribute(parent as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement], siblings.count <= 32 else { return nil }
+        var pending = siblings
+        var visited = 0
+        while !pending.isEmpty && visited < 32 {
+            let candidate = pending.removeFirst()
+            visited += 1
+            if Self.attribute(candidate, kAXRoleAttribute) as? String == kAXStaticTextRole,
+               Self.attribute(candidate, kAXValueAttribute) as? String == placeholder { return candidate }
+            if let children = Self.attribute(candidate, kAXChildrenAttribute) as? [AXUIElement], children.count <= 32 {
+                pending.append(contentsOf: children)
+            }
+        }
+        return nil
+    }
+
+    private static func bounds(_ element: AXUIElement) -> CGRect? {
+        guard let position = attribute(element, kAXPositionAttribute), let size = attribute(element, kAXSizeAttribute),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var dimensions = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { return nil }
+        return CGRect(origin: point, size: dimensions)
     }
 
     func isFocused() -> Bool {

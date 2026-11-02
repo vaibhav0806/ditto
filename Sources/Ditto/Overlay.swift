@@ -248,7 +248,9 @@ final class OverlayController {
         let point = caret.map { NSPoint(x: $0.minX, y: top - $0.maxY) } ?? NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens[0]
         let bounds = screen.visibleFrame
-        let y = inline ? point.y - 16 : point.y - size.height - 5
+        let below = point.y - size.height - 5
+        let above = caret.map { top - $0.minY + 5 } ?? point.y + 5
+        let y = inline ? point.y - 16 : (below >= bounds.minY + 4 ? below : above)
         let origin = NSPoint(x: min(max(point.x, bounds.minX + 4), bounds.maxX - size.width - 4), y: min(max(y, bounds.minY + 4), bounds.maxY - size.height - 4))
         ghost.setFrame(NSRect(origin: origin, size: size), display: true)
         ghost.orderFrontRegardless()
