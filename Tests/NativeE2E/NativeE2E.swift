@@ -33,15 +33,21 @@ public final class NativeE2E {
     private var results: [[String: String]] = []
     private var fixture: AXUIElement?
     private var expectedPID: pid_t = 0
-    private let token = "ditto-e2e-" + UUID().uuidString.prefix(8).lowercased()
+    private let token: String
     private var finished = false
     private var destinationWindow: NSWindow?
     private var checkedMaskEscape = false
     private var checkedMaskAcceptance = false
+    private var chatRegion: CGRect?
+    private var chatField: CGRect?
 
     public init(output: URL, appID: String = "com.apple.TextEdit") {
         self.output = output
         self.appID = appID
+        if let index = CommandLine.arguments.firstIndex(of: "--e2e-fixture"), CommandLine.arguments.indices.contains(index + 1),
+           CommandLine.arguments[index + 1].range(of: "^ditto-e2e-[0-9a-f]{8}$", options: .regularExpression) != nil {
+            token = CommandLine.arguments[index + 1]
+        } else { token = "ditto-e2e-" + UUID().uuidString.prefix(8).lowercased() }
     }
 
     public func start() {
@@ -128,6 +134,7 @@ public final class NativeE2E {
     private func awaitMask(_ editor: MaskFixtureEditor, index: Int, region: CGRect, before: CGImage, attempts: Int) {
         after(0.1) {
             let mask = NSApp.windows.first { $0.title == "Ditto placeholder mask" && $0.isVisible }
+
             let ghost = NSApp.windows.first { $0.title == "Ditto completion" && $0.isVisible }
             if index == 3 {
                 guard attempts == 1 else { self.awaitMask(editor, index: index, region: region, before: before, attempts: attempts - 1); return }
@@ -175,19 +182,36 @@ public final class NativeE2E {
                 guard self.type("di") else { return }
                 self.after(0.25) {
                     self.record("mask case \(index) disappears on typing", passed: !mask.isVisible && editor.string == "di")
-                    guard self.key(53), self.key(0, flags: .maskCommand), self.key(51) else { return }
-                    self.after(0.25) { self.maskCase(editor, index: index + 1) }
+                    guard self.key(48) else { return }
+                    self.after(0.25) {
+                        self.record("mask case \(index) keeps completion active after typing", passed: editor.string == self.token)
+                        guard !self.finished, self.key(0, flags: .maskCommand), self.key(51) else { return }
+                        self.after(0.25) { self.maskCase(editor, index: index + 1) }
+                    }
                 }
             }
         }
     }
 
     private func captureRegion(_ region: CGRect, completion: @escaping (CGImage?) -> Void) {
-        guard #available(macOS 15.2, *) else { finish(error: "Mask fixture screenshot requires macOS 15.2"); return }
-        SCScreenshotManager.captureImage(in: region) { image, _ in
-            DispatchQueue.main.async {
-                guard image != nil else { self.finish(error: "Fixture screenshot failed"); return }
-                completion(image)
+        guard #available(macOS 14, *) else { finish(error: "Mask fixture screenshot requires macOS 14"); return }
+        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { content, _ in
+            guard let display = content?.displays.first(where: { $0.frame.contains(region) }) else {
+                DispatchQueue.main.async { self.finish(error: "Fixture display not found") }
+                return
+            }
+            let configuration = SCStreamConfiguration()
+            configuration.sourceRect = region.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+            let scale = self.destinationWindow?.backingScaleFactor ?? 2
+            configuration.width = Int((region.width * scale).rounded(.up))
+            configuration.height = Int((region.height * scale).rounded(.up))
+            configuration.showsCursor = false
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, _ in
+                DispatchQueue.main.async {
+                    guard image != nil else { self.finish(error: "Fixture screenshot failed"); return }
+                    completion(image)
+                }
             }
         }
     }
@@ -235,7 +259,76 @@ public final class NativeE2E {
         }
         if appID == "com.google.Chrome" { runBrowser() }
         else if appID == "com.mitchellh.ghostty" { runTerminal() }
+        else if isChatComposer { runChatComposer() }
         else { runEditor() }
+    }
+
+    private var isChatComposer: Bool { ["com.t3tools.t3code", "com.tinyspeck.slackmacgap"].contains(appID) }
+
+    private func runChatComposer() {
+        guard let element = focused(), let initial = read(element), InputPolicy.isVisuallyBlank(initial),
+              attribute(element, kAXRoleAttribute) as? String == kAXTextAreaRole,
+              (attribute(element, kAXDescriptionAttribute) as? String)?.lowercased().contains("message") == true,
+              NSPasteboard.general.string(forType: .string) == token else {
+            finish(error: "Focus an empty message composer; clipboard must contain the generated mask fixture")
+            return
+        }
+        fixture = element
+        results.append(["scenario": "initial empty paragraph", "utf16Length": String(initial.utf16.count), "selection": selection(element).map(NSStringFromRange) ?? "unavailable"])
+        recordCapabilities(element)
+        guard key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+        after(1.2) {
+            self.captureGhost(expectedPointSize: nil)
+            guard !self.finished else { return }
+            self.record("invocation leaves actual draft unchanged", passed: self.read(element) == initial)
+            let mask = NSApp.windows.first { $0.title == "Ditto placeholder mask" && $0.isVisible }
+            if mask == nil, let region = self.chatRegion {
+                self.captureRegion(CGRect(x: region.minX, y: region.minY, width: region.width, height: region.height + 16)) { image in
+                    if let image, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                        try? png.write(to: self.output.deletingPathExtension().appendingPathExtension("chat-sample.png"))
+                    }
+                }
+            }
+            self.results.append(["scenario": "actual placeholder presentation", "maskVisible": String(mask != nil)])
+            let ghost = NSApp.windows.first { $0.title == "Ditto completion" && $0.isVisible }
+            let top = NSScreen.screens.first!.frame.maxY
+            self.record("actual blank composer avoids overlapping placeholder", passed: mask != nil || ((self.chatRegion ?? self.chatField).map { region in ghost.map { $0.frame.maxY < top - region.maxY + 4 || $0.frame.minY > top - region.minY } ?? false } ?? false))
+            guard !self.finished, self.key(53) else { return }
+            self.after(0.2) {
+                self.record("Esc restores empty actual composer", passed: self.read(element) == initial && mask?.isVisible != true)
+                guard !self.finished, self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                self.after(0.8) {
+                    guard self.type("ditto-e2e-") else { return }
+                    self.after(0.3) {
+                        let query = self.read(element) ?? ""
+                        self.results.append(["scenario": "typed paragraph shape", "utf16Length": String(query.utf16.count), "selection": self.selection(element).map(NSStringFromRange) ?? "unavailable", "trailingNewline": String(query.hasSuffix("\n"))])
+                        self.record("actual draft receives query and mask disappears", passed: self.read(element)?.trimmingCharacters(in: .newlines) == "ditto-e2e-" && mask?.isVisible != true)
+                        guard !self.finished, self.key(48) else { return }
+                        self.after(0.6) {
+                            self.record("Tab completes actual composer", passed: self.read(element)?.trimmingCharacters(in: .newlines) == self.token)
+                            self.record("actual completion preserves clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token)
+                            guard !self.finished, self.key(6, flags: .maskCommand) else { return }
+                            self.after(0.3) {
+                                let undo = self.read(element)
+                                self.results.append(["scenario": "host undo state", "queryRestored": String(undo?.trimmingCharacters(in: .newlines) == "ditto-e2e-"), "empty": String(undo.map(InputPolicy.isVisuallyBlank) == true), "readable": String(undo != nil), "sameFocusedElement": String(self.focused().map { CFEqual($0, element) } == true)])
+                                self.record("actual composer acceptance undo", passed: self.read(element)?.trimmingCharacters(in: .newlines) == "ditto-e2e-")
+                                guard !self.finished, self.key(53), self.key(0, flags: .maskCommand), self.key(51) else { return }
+                                self.after(0.3) {
+                                    self.record("test draft cleaned without sending", passed: self.read(element).map(InputPolicy.isVisuallyBlank) == true)
+                                    self.finish()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+        return value
     }
 
     private func runEditor() {
@@ -367,6 +460,7 @@ public final class NativeE2E {
     private func captureGhost(expectedPointSize: CGFloat? = 16) {
         guard let window = NSApp.windows.first(where: { $0.title == "Ditto completion" && $0.isVisible }),
               let content = window.contentView else { record("inline ghost visible", passed: false); return }
+        results.append(["scenario": "ghost dimensions", "width": String(Double(window.frame.width)), "height": String(Double(window.frame.height))])
         record("inline ghost does not take focus", passed: !window.canBecomeKey)
         record("inline ghost has nonzero compact size", passed: window.frame.height >= 20 && window.frame.height < 80 && window.frame.width > 20)
         let texts = content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
@@ -458,6 +552,65 @@ public final class NativeE2E {
     }
 
     private func recordCapabilities(_ element: AXUIElement) {
+        var ancestor = element
+        for level in 0..<3 {
+            var geometry: [String: String] = ["scenario": "field hierarchy", "level": String(level)]
+            if let position = attribute(ancestor, kAXPositionAttribute), let size = attribute(ancestor, kAXSizeAttribute),
+               CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() {
+                var point = CGPoint.zero
+                var dimensions = CGSize.zero
+                AXValueGetValue(position as! AXValue, .cgPoint, &point)
+                AXValueGetValue(size as! AXValue, .cgSize, &dimensions)
+                geometry["rect"] = NSStringFromRect(CGRect(origin: point, size: dimensions))
+                if level == 0 { chatField = CGRect(origin: point, size: dimensions) }
+            }
+            if let children = attribute(ancestor, kAXChildrenAttribute) as? [AXUIElement] {
+                geometry["childRoles"] = children.prefix(16).map { attribute($0, kAXRoleAttribute) as? String ?? "unknown" }.joined(separator: ",")
+            }
+            results.append(geometry)
+            guard let parent = attribute(ancestor, kAXParentAttribute), CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
+            ancestor = parent as! AXUIElement
+        }
+        if let placeholder = attribute(element, kAXPlaceholderValueAttribute) as? String,
+           let rawParent = attribute(element, kAXParentAttribute), CFGetTypeID(rawParent) == AXUIElementGetTypeID(),
+           let siblings = attribute(rawParent as! AXUIElement, kAXChildrenAttribute) as? [AXUIElement], siblings.count <= 32 {
+            var pending = siblings
+            var visited = 0
+            while !pending.isEmpty && visited < 32 {
+                let sibling = pending.removeFirst()
+                visited += 1
+                if let children = attribute(sibling, kAXChildrenAttribute) as? [AXUIElement], children.count <= 32 { pending.append(contentsOf: children) }
+                guard attribute(sibling, kAXValueAttribute) as? String == placeholder else { continue }
+                if let position = attribute(sibling, kAXPositionAttribute), let size = attribute(sibling, kAXSizeAttribute),
+                   CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() {
+                    var point = CGPoint.zero
+                    var dimensions = CGSize.zero
+                    AXValueGetValue(position as! AXValue, .cgPoint, &point)
+                    AXValueGetValue(size as! AXValue, .cgSize, &dimensions)
+                    results.append(["scenario": "placeholder geometry", "rect": NSStringFromRect(CGRect(origin: point, size: dimensions))])
+                    if attribute(sibling, kAXRoleAttribute) as? String == kAXStaticTextRole,
+                       let fieldPosition = attribute(element, kAXPositionAttribute), let fieldSize = attribute(element, kAXSizeAttribute) {
+                        var origin = CGPoint.zero
+                        var extent = CGSize.zero
+                        AXValueGetValue(fieldPosition as! AXValue, .cgPoint, &origin)
+                        AXValueGetValue(fieldSize as! AXValue, .cgSize, &extent)
+                        chatRegion = PlaceholderMask.region(field: CGRect(origin: origin, size: extent), caret: CGRect(x: point.x, y: point.y, width: 1, height: dimensions.height))
+                    }
+                }
+            }
+        }
+        for length in [0, 1] {
+            var range = CFRange(location: 0, length: length)
+            var bounds: CFTypeRef?
+            if let parameter = AXValueCreate(.cfRange, &range),
+               AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &bounds) == .success,
+               let bounds, CFGetTypeID(bounds) == AXValueGetTypeID() {
+                var rect = CGRect.zero
+                if AXValueGetValue(bounds as! AXValue, .cgRect, &rect) {
+                    results.append(["scenario": "empty range geometry", "length": String(length), "rect": NSStringFromRect(rect)])
+                }
+            }
+        }
         var selected = DarwinBoolean(false)
         var range = DarwinBoolean(false)
         AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &selected)
@@ -509,6 +662,9 @@ public final class NativeE2E {
     }
 
     @discardableResult private func key(_ code: CGKeyCode, flags: CGEventFlags = []) -> Bool {
+        if isChatComposer, let fixture {
+            guard let current = focused(), CFEqual(current, fixture) else { finish(error: "Stopped: composer lost focus"); return false }
+        }
         guard !finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else {
             finish(error: "Stopped: destination lost foreground focus")
             return false
@@ -523,6 +679,9 @@ public final class NativeE2E {
     }
 
     @discardableResult private func type(_ text: String) -> Bool {
+        if isChatComposer, let fixture {
+            guard let current = focused(), CFEqual(current, fixture) else { finish(error: "Stopped: composer lost focus"); return false }
+        }
         guard !finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else { finish(error: "Aborted: foreground app changed"); return false }
         let source = CGEventSource(stateID: .hidSystemState)
         for character in text {

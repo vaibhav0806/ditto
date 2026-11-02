@@ -54,7 +54,16 @@ Spec: user requested the existing placeholder visually disappear with the exact 
 - [x] Test flat-color detection, gradient/texture rejection, input-bounded geometry, and actual rendered RGBA/caret transparency at 1x/2x.
 - [x] Add narrow-region ScreenCaptureKit sampling, excluded overlay windows, permission preflight, and stale-focus/generation checks. Captured pixels are never persisted by the product.
 - [x] Add a separate non-activating mask that leaves the native caret visible, hides on typing/cancel, and falls back below the line when no exact sampled color is available.
-- [ ] Verify live source-vs-mask pixels in dark/white/gray fixtures, removal on typing, and texture rejection with OS Screen Recording permission.
+- [x] Verify live source-vs-mask pixels in dark/white/gray fixtures, removal on typing, and texture rejection with OS Screen Recording permission.
 - [ ] Run native regression, record precise limitations, commit/push, and restart the app normally.
 
 Limits: matching sampled border colors is evidence of a flat field, not proof of the hidden pixels beneath every glyph. Gradients/textures and wrapped placeholders cannot be promised seamless. The initial prototype targets a single placeholder line and requires macOS 14+ plus Screen Recording for capture. Full cross-app verification remains open.
+
+## Real composer completion fixes
+
+- [x] Derive an empty-editor caret from measured paragraph or matching placeholder geometry; reject oversized editor rectangles.
+- [x] Normalize a single structural newline only with empty rich-text layout evidence.
+- [x] Keep completion active when typing removes the initial mask.
+- [x] Verify the actual T3 invoke/type/accept/undo/cleanup flow with visible masking.
+- [ ] Finish an uninterrupted Slack undo/cleanup check, rerun native regression, and launch normal mode.
+- [x] Commit and push production fixes; keep remaining verification gaps explicit.

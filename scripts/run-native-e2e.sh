@@ -9,7 +9,9 @@ case "${1:-textedit}" in
   textedit-events) ditto_target=com.apple.TextEdit ;;
   mask) ditto_target=com.vaibhav0806.ditto ;;
   mask-status) ditto_target=com.vaibhav0806.ditto ;;
-  *) printf '%s\n' 'Usage: run-native-e2e.sh [textedit|textedit-events|mask|chrome|ghostty]' >&2; exit 2 ;;
+  t3) ditto_target=com.t3tools.t3code ;;
+  slack) ditto_target=com.tinyspeck.slackmacgap ;;
+  *) printf '%s\n' 'Usage: run-native-e2e.sh [textedit|textedit-events|mask|mask-status|t3|slack|chrome|ghostty]' >&2; exit 2 ;;
 esac
 ditto_app="$ditto_root/build/Ditto.app"
 ditto_result="$ditto_root/.build/e2e-${1:-textedit}.json"
@@ -23,7 +25,10 @@ for line in subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True).spl
         os.kill(int(parts[0]), signal.SIGTERM)
 PY
 rm -f "$ditto_result"
-if [[ "${1:-textedit}" == mask-status ]]; then
+if [[ "${1:-textedit}" == t3 || "${1:-textedit}" == slack ]]; then
+    ditto_fixture="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fixture"])' "$ditto_root/.build/e2e-mask.json")"
+    open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-fixture "$ditto_fixture"
+elif [[ "${1:-textedit}" == mask-status ]]; then
     open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-mask-permission
 elif [[ "${1:-textedit}" == textedit-events ]]; then
     open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-event-query

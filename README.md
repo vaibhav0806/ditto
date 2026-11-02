@@ -44,7 +44,7 @@ Without permission, reliable geometry, or a uniform sample, suggestions appear b
 - Default-on text capture; pause, app exclusions, retention and launch-at-login settings.
 - Setup/permission states and a built-in practice editor.
 
-Images/files, customizable shortcuts and distribution are deferred. Actual global-shortcut tests pass in TextEdit for both automatic and forced event-query tracking. Ghostty, WhatsApp, and the current browser/editor builds remain **unverified**; neither a build nor TextEdit proves those apps work. Pure Unicode insertion can have different undo grouping from paste.
+Images/files, customizable shortcuts and distribution are deferred. Actual global-shortcut tests pass in TextEdit for both automatic and forced event-query tracking. Actual T3 completion, placeholder masking, Escape and undo have passed. Slack masking and acceptance have passed, with its final undo check unresolved. Ghostty, WhatsApp, and the current browser builds remain **unverified**; neither a build nor TextEdit proves those apps work. Pure Unicode insertion can have different undo grouping from paste.
 
 ## Verify
 
@@ -65,6 +65,8 @@ The opt-in native runner uses real system-wide keys and the real clipboard in a 
 ```
 
 The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state.
+
+With Screen Recording enabled, `./scripts/run-native-e2e.sh mask` checks live dark/white/gray placeholder masking and textured-background rejection. The `t3` and `slack` modes require an already-focused empty message composer and the generated clipboard token from the mask run. They refuse other clipboard content, stop on app/field focus changes, and never press Return or send a message. Slack tests should use a self conversation. Test reports and cropped fixtures stay in ignored `.build/`. Restart the app normally after developer tests; test flags belong only to verification sessions.
 
 See [docs/verification.md](docs/verification.md) for observed results and the remaining real-app checklist. A green build is not proof of successful cross-app insertion.
 
