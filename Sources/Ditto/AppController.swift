@@ -189,7 +189,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func invoke(openList: Bool = false) {
         logger.notice("Invocation history=\(openList) active=\(NSApp.isActive) accessibility=\(AXIsProcessTrusted())")
         cancel()
-        guard !IsSecureEventInputEnabled() else { return }
+        guard !IsSecureEventInputEnabled() else {
+            logger.notice("Invocation blocked: macOS Secure Input is active")
+            showBriefNotice("Secure Input is active · leave password entry and retry")
+            return
+        }
         guard !preferences.exclusions.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") else { return }
         do { try store.prune(retentionDays: preferences.retentionDays); candidates = try store.entries() }
         catch { setupModel.status = error.localizedDescription; showSetup(); return }

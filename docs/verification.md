@@ -84,3 +84,9 @@ The current signed build passed the full live mask run (27 passing assertions in
 The uninterrupted Slack run established native undo grouping: after successful completion, Undo produced an empty readable field while the same AX element remained focused. It clears the query and paste together. This is now an explicit per-app behavior in the PRD and runner rather than a promise of identical undo grouping across editors. The updated Slack expectation/cleanup sequence has not yet completed another live run. T3’s full visible-mask, completion, undo, and cleanup pass is recorded above.
 
 The user explicitly requested merging PR #1. Merge is a source-control action and does not satisfy the remaining product handoff gate. Ghostty testing is tool-blocked; WhatsApp and current browser builds remain unverified. No claim of universal completion or a fully finished product is made.
+
+## Silent invocation diagnosis — 2026-11-02
+
+The user reported no response in T3 after the normal build had been running for several hours. Live logs recorded each global invocation with Accessibility enabled but no destination check afterward. Carbon reported `IsSecureEventInputEnabled() == true`, and the OS session’s secure-input owner PID resolved to Google Chrome. The invocation returned before reading the target, as intended for Secure Input, but silently.
+
+The blocked path now logs its specific reason and shows a brief non-activating notice asking the user to leave password entry and retry. It does not disable Secure Input, close Chrome, or capture session keystrokes while blocked. Runtime completion remains blocked until the owning app releases Secure Input. A successful build or a running process does not establish live completion readiness.
