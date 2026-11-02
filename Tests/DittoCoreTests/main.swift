@@ -19,6 +19,8 @@ func test(_ name: String, _ body: () throws -> Void) {
     print("\(before == failures ? "PASS" : "FAIL") \(name)")
 }
 let suite = CompletionTests()
+test("history placement at display edges", testHistoryPlacementStaysOnTheTargetDisplay)
+test("history Unicode preview and selection boundaries", testHistoryPresentationKeepsUnicodeAndBoundsPreview)
 test("exact placeholder background color", testUniformBackgroundPreservesExactColor)
 test("capture retains color profile components", testCaptureKeepsItsColorProfileComponents)
 test("reject ambiguous placeholder backgrounds", testAmbiguousBackgroundIsNotReplacedWithAnAverage)
