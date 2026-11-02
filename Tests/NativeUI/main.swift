@@ -16,6 +16,14 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 app.finishLaunching()
 let previousApp = NSWorkspace.shared.frontmostApplication
+let outputIndex = CommandLine.arguments.firstIndex(of: "--output-directory")
+let output = outputIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil } ?? ".build/history-ui"
+try FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
+runGhostTextChecks(output: output)
+if CommandLine.arguments.contains("--glyph-only") {
+    print("\(checks) native glyph checks, \(failures.count) failures")
+    exit(failures.isEmpty ? 0 : 1)
+}
 let model = OverlayModel()
 let now = Date()
 var clips = [
@@ -54,9 +62,6 @@ app.activate(ignoringOtherApps: true)
 window.makeKeyAndOrderFront(nil)
 view.focusSearch()
 pump()
-let outputIndex = CommandLine.arguments.firstIndex(of: "--output-directory")
-let output = outputIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil } ?? ".build/history-ui"
-try FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
 
 func snapshot(_ name: String, appearance: NSAppearance.Name) {
     window.appearance = NSAppearance(named: appearance)

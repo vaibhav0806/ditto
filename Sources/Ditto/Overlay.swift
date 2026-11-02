@@ -68,7 +68,7 @@ final class OverlayController {
         } else { panel.orderFrontRegardless() }
     }
 
-    func showCompletion(caret: CGRect?, font: NSFont, background: PlaceholderBackground? = nil, inline: Bool = true, hasExistingText: Bool = false, field: CGRect? = nil) {
+    func showCompletion(caret: CGRect?, style: GhostTextStyle, background: PlaceholderBackground? = nil, inline: Bool = true, hasExistingText: Bool = false, field: CGRect? = nil, baselineOffset: CGFloat? = nil) {
         panel.orderOut(nil)
         guard let caret else { showNotice("Cursor position unavailable · ⌘L for history"); return }
         guard let selected = model.selected else {
@@ -90,27 +90,18 @@ final class OverlayController {
         let completion = isPrefix ? String(selected.text[(range?.upperBound ?? selected.text.startIndex)...]) : selected.text
         let firstLine = completion.components(separatedBy: .newlines).first ?? ""
         let value = firstLine + (completion.contains("\n") ? " …" : "")
-        let label = NSTextField(labelWithString: value.isEmpty ? "⇥" : value)
-        label.font = font
-        label.textColor = background?.ink ?? .secondaryLabelColor
-        label.maximumNumberOfLines = 1
-        label.cell?.usesSingleLineMode = true
-        label.cell?.truncatesLastVisibleLine = true
-        label.lineBreakMode = .byTruncatingTail
-        label.setAccessibilityLabel("Ditto completion")
-        label.sizeToFit()
         let top = NSScreen.screens.first?.frame.maxY ?? 0
         let point = NSPoint(x: caret.minX, y: top - caret.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens[0]
         let right = min(field?.maxX ?? screen.visibleFrame.maxX, screen.visibleFrame.maxX)
-        let width = min(max(label.frame.width + 4, 24), 600, max(1, right - caret.minX - 4))
-        let lineHeight = caret.height
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: lineHeight))
-        label.frame = content.bounds
-        content.addSubview(label)
+        let content = GhostTextView(text: value.isEmpty ? "⇥" : value, style: style, color: background?.ink ?? .secondaryLabelColor, lineHeight: caret.height, maximumWidth: min(600, max(1, right - caret.minX - 4)), baselineOffset: baselineOffset)
         let size = content.frame.size
         ghost.contentView = content
-        placeGhost(size: size, caret: caret, inline: isPrefix && inline && InputPolicy.allowsInlineCompletion(query: model.query, hasMask: background != nil, hasExistingText: hasExistingText))
+        let drawsInline = isPrefix && inline && InputPolicy.allowsInlineCompletion(query: model.query, hasMask: background != nil, hasExistingText: hasExistingText)
+        placeGhost(size: size, caret: caret, inline: drawsInline)
+        if drawsInline {
+            content.penOffset = CGPoint(x: caret.minX - ghost.frame.minX, y: top - caret.minY - ghost.frame.minY - content.bounds.height)
+        }
     }
 
     func showNotice(_ message: String, caret: CGRect? = nil) {

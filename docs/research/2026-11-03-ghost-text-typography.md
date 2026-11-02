@@ -2,13 +2,15 @@
 
 Research date: 2026-11-03. This follows the broader [macOS input survey](2026-11-02-macos-oss-input-research.md) and the user's report that Ditto still floats above TextEdit text. This is a source review and proposed direction, not a verified rendering fix.
 
+Implementation checkpoint: the independent renderer and native/actual TextEdit glyph comparisons now pass. T3 empty/filled sizing is consistent, but exact host font evidence remains unavailable there. See [current verification](../verification.md#core-text-renderer-and-actual-glyph-validation--2026-11-03). The source review below preserves the pre-implementation findings.
+
 ## Decision
 
 Replace label-box alignment with an explicit glyph renderer driven by the focused field's typography and measured baseline. Keep the normal app and `⌥⌘V` session. Do not introduce a table of application-specific pixel offsets.
 
 The user's acceptance criterion is visual continuation of the host text: same face, size, weight, glyph advances, baseline, line pitch and available line width; gray until acceptance. A matching caret rectangle is insufficient evidence.
 
-## What the current implementation actually establishes
+## What the pre-implementation build actually established
 
 - `TextTarget.font` can read a nearby attributed character, but falls back to a 14 pt system font when it cannot. An empty field provides no character to probe. That fallback is not proof of the current typing font.
 - `OverlayController` paints the suggestion in an `NSTextField` sized to the caret box. Matching that box does not give the host's typesetter baseline or paragraph metrics.

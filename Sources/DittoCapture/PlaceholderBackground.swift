@@ -26,7 +26,7 @@ public struct PlaceholderBackground: Equatable {
 
 public enum PlaceholderBackgroundSampler {
     private static let logger = Logger(subsystem: "com.vaibhav0806.ditto", category: "Mask")
-    public static func capture(region: CGRect, excludingWindows: Set<CGWindowID>, isCurrent: @escaping () -> Bool, completion: @escaping (PlaceholderBackground?) -> Void) {
+    public static func capture(region: CGRect, caret: CGRect? = nil, excludingWindows: Set<CGWindowID>, isCurrent: @escaping () -> Bool, completion: @escaping (PlaceholderBackground?) -> Void) {
         guard #available(macOS 14, *), CGPreflightScreenCaptureAccess() else {
             logger.notice("Mask sampling unavailable: OS version or screen permission")
             completion(nil); return
@@ -52,7 +52,8 @@ public enum PlaceholderBackgroundSampler {
                 SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, error in
                     DispatchQueue.main.async {
                         guard isCurrent() else { logger.notice("Mask capture discarded: stale target"); completion(nil); return }
-                        let color = image.flatMap { classify(image: $0) }
+                        let columns = caret.map { Int(floor(($0.minX - region.minX - 1) * scale))..<Int(ceil(($0.maxX - region.minX + 1) * scale)) }
+                        let color = image.flatMap { classify(image: $0, excludingColumns: columns) }
                         logger.notice("Mask sample pixels=\(image?.width ?? 0)x\(image?.height ?? 0) uniform=\(color != nil) error=\((error as NSError?)?.code ?? 0)")
                         completion(color.flatMap { color in
                             image?.colorSpace.map { PlaceholderBackground(region: region, color: color, colorSpace: $0) }
@@ -63,7 +64,7 @@ public enum PlaceholderBackgroundSampler {
         }
     }
 
-    public static func classify(image: CGImage) -> MaskColor? {
+    public static func classify(image: CGImage, excludingColumns: Range<Int>? = nil) -> MaskColor? {
         let width = image.width
         let height = image.height
         guard width >= 8, height >= 8, width <= 4096, height <= 512,
@@ -76,7 +77,7 @@ public enum PlaceholderBackgroundSampler {
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
-        return rendered ? PlaceholderMask.background(rgba: pixels, width: width, height: height) : nil
+        return rendered ? PlaceholderMask.background(rgba: pixels, width: width, height: height, excludingColumns: excludingColumns) : nil
     }
 }
 

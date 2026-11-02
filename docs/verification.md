@@ -1,5 +1,28 @@
 # Native prototype verification
 
+## Core Text renderer and actual glyph validation — 2026-11-03
+
+The renderer now draws Core Text glyphs at an explicit typesetter baseline rather than centering an NSTextField. It preserves reported font/paragraph/spacing attributes, retains fractional placement after window rounding, and can refine the baseline through a bounded local comparison with nearby host text. No application-specific position offsets are used; no upstream implementation was copied. Production measurements remain in memory and reject stale focus, Secure Input, unknown fonts, nonuniform backgrounds and weak matches.
+
+The stronger live test exposed a separate geometry defect: TextEdit's collapsed AX range was exactly one line above its actual character bounds, even when it had a plausible height. Adjacent grapheme bounds now supply the line geometry. A newline may legitimately span the rest of its line, so only actual newline bounds permit that width. The fully empty field's out-of-field collapsed rect is bounded to its visible text area. The mask strip clips padding at the field edge, and sampling excludes the caret columns while keeping the existing background ambiguity checks.
+
+| Check | Observed result | Limits |
+| --- | --- | --- |
+| `swift run DittoTests` | 30 passed, zero failures | Includes field-edge mask bounds and caret-contaminated sample rejection/exclusion |
+| Native glyph checks (`--glyph-only`) | 36 passed, zero failures | 32 native-versus-ghost comparisons at 1x/2x across fonts, weight, italic, tracking, ligatures, empty/new lines and paragraph metrics; four pixel-calibration checks |
+| Full native UI run earlier in this implementation | 67 passed, zero failures | The same 36 glyph checks plus the existing 31 search controls checks |
+| Signed live `typography` | 14 passing results including runner | Actual TextEdit filled line, new paragraph and empty field; compares ghost pixels with accepted host text, not view metadata |
+| Signed live `t3` | 14 passing results including runner | Empty/filled font consistency, unchanged draft on invoke, Escape, typing, Tab, clipboard preservation, native undo and generated-draft cleanup |
+| Signed live `mask` | 27 passing results including runner | Dark/white/gray mask pixels, empty acceptance/undo, typing, Escape and conservative texture fallback |
+| Signed live `history-textedit` | 16 passing results including runner | Real global invocation, acceptance/undo, history filtering, empty-result Return, Escape restoring query and history paste/undo |
+| Signed live `prefilled` | 25 passing results including runner | Four native layouts, host baseline/field bounds, unchanged draft, Escape and acceptance |
+
+In the final TextEdit pixel run, all three cases had zero width/height difference and absolute letter centroid displacement below 0.02 device pixels. The generated ghost and accepted PNG pairs were also visually inspected. The test moves the accepted-text caret to line start to avoid measuring the insertion bar as part of the final letter. A separate earlier crop based on the invalid collapsed range and a contaminated end-caret capture failed and are not counted as evidence. The old broad runner's geometry assertion was corrected to compare against actual preceding glyph bounds; its collapsed-range center was the very defect under test.
+
+T3 used `.AppleSystemUIFont` 14 pt both before and after query typing, with `reported=false` in both cases. Its consistency issue passes, but the actual host font face is not independently established by that assertion. The mask was rejected during this run, and the existing separate preview protected the placeholder; this is not an exact inline T3 typography signoff. The original unsent draft was preserved and restored after the generated test. No messages were sent. Reports/PNGs stay under ignored `.build/`.
+
+The broader TextEdit driver still stops at its historical multi-copy setup: synthetic Cmd-A leaves selection `{24, 0}` after the first generated copy fixture. Capture, global invocation, actual completion, one-step undo, clipboard preservation and immediate Tab pass before that stop. It is not counted as a full-suite pass. Mid-line visible suffixes, wrapping/RTL, opaque hosts, Ghostty, WhatsApp, current browsers and VoiceOver speech remain outside this typography signoff.
+
 ## Reopened typography issue — 2026-11-03
 
 The user reports that the current build still floats above actual TextEdit text, on both empty/new and filled lines. The earlier zero offsets below describe the measured fixture metadata, not proof of identical TextEdit glyph rendering. The TextEdit check compared caret/label rectangle centers, while the native glyph-baseline fixture used a single monospaced font and a view baseline property. These passes do not close the reported visual defect. Rendering validation is reopened; see the [focused source research and proposed independent pixel test](research/2026-11-03-ghost-text-typography.md). No new production rendering patch was made during that research.

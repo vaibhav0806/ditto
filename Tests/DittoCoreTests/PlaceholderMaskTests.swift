@@ -117,5 +117,14 @@ func testMaskStaysInsideTheInputAndCoversThePlaceholderLine() {
     expectTrue(region.maxX > caret.maxX + 300)
     expectNil(PlaceholderMask.region(field: field, caret: CGRect(x: 26, y: 36, width: 0, height: 0)))
     expectNil(PlaceholderMask.region(field: field, caret: CGRect(x: 500, y: 36, width: 1, height: 18)))
-    expectNil(PlaceholderMask.region(field: field, caret: CGRect(x: 26, y: 20, width: 1, height: 18)))
+    var pixels: [UInt8] = Array(repeating: [UInt8(255), 255, 255, 255], count: 40 * 24).flatMap { $0 }
+    for y in 0..<18 {
+        let i = (y * 40 + 4) * 4
+        pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0
+    }
+    expectNil(PlaceholderMask.background(rgba: pixels, width: 40, height: 24))
+    expectEqual(PlaceholderMask.background(rgba: pixels, width: 40, height: 24, excludingColumns: 3..<6), MaskColor(red: 255, green: 255, blue: 255))
+    let edge = PlaceholderMask.region(field: field, caret: CGRect(x: 26, y: 20, width: 1, height: 18))
+    expectTrue(edge.map { field.contains($0) && $0.minY == field.minY && $0.maxY >= 38 } == true)
+    expectNil(PlaceholderMask.region(field: field, caret: CGRect(x: 26, y: 19, width: 1, height: 18)))
 }

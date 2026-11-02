@@ -4,6 +4,7 @@ import Carbon
 import ScreenCaptureKit
 import DittoCore
 import DittoCapture
+import DittoUI
 
 private final class MaskFixtureEditor: NSTextView {
     var fill = NSColor(srgbRed: 17 / 255, green: 17 / 255, blue: 17 / 255, alpha: 1)
@@ -123,7 +124,7 @@ public final class NativeE2E {
         guard key(9, flags: [.maskCommand, .maskAlternate]) else { return }
         after(0.3) {
             guard let ghost = NSApp.windows.first(where: { $0.title == "Ditto completion" && $0.isVisible }),
-                  let label = ghost.contentView?.subviews.first as? NSTextField else { self.record("prefilled case \(index) shows suggestion", passed: false); return }
+                  let label = ghost.contentView as? GhostTextView else { self.record("prefilled case \(index) shows suggestion", passed: false); return }
             let caret = editor.firstRect(forCharacterRange: editor.selectedRange(), actualRange: nil)
             let labelRect = ghost.convertToScreen(label.convert(label.bounds, to: nil))
             let field = editor.window!.convertToScreen(editor.convert(editor.bounds, to: nil))
@@ -131,7 +132,7 @@ public final class NativeE2E {
                 let glyph = layout.glyphIndexForCharacter(at: before.utf16.count - 1)
                 let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
                 let baseline = editor.window!.convertPoint(toScreen: editor.convert(NSPoint(x: 0, y: editor.textContainerOrigin.y + line.minY + layout.location(forGlyphAt: glyph).y), to: nil)).y
-                let labelBaseline = labelRect.maxY - label.firstBaselineOffsetFromTop
+                let labelBaseline = labelRect.maxY - label.baselineOffsetFromTop + label.penOffset.y
                 self.results.append(["scenario": "prefilled case \(index) baseline", "offset": String(Double(labelBaseline - baseline)), "labelHeight": String(Double(labelRect.height)), "caretHeight": String(Double(caret.height))])
                 self.record("prefilled case \(index) matches the host baseline", passed: abs(labelBaseline - baseline) <= 1)
             }
@@ -338,6 +339,8 @@ public final class NativeE2E {
         after(1.2) {
             self.captureGhost(expectedPointSize: nil)
             guard !self.finished else { return }
+            let emptyStyle = (NSApp.windows.first { $0.title == "Ditto completion" && $0.isVisible }?.contentView as? GhostTextView)?.style
+            if let emptyStyle { self.results.append(["scenario": "empty composer typography", "font": emptyStyle.font.fontName, "size": String(Double(emptyStyle.font.pointSize)), "reported": String(emptyStyle.reported)]) }
             self.record("invocation leaves actual draft unchanged", passed: self.read(element) == initial)
             let mask = NSApp.windows.first { $0.title == "Ditto placeholder mask" && $0.isVisible }
             if mask == nil, let region = self.chatRegion {
@@ -359,6 +362,9 @@ public final class NativeE2E {
                     guard self.type("ditto-e2e-") else { return }
                     self.after(0.3) {
                         let query = self.read(element) ?? ""
+                        let filledStyle = (NSApp.windows.first { $0.title == "Ditto completion" && $0.isVisible }?.contentView as? GhostTextView)?.style
+                        if let filledStyle { self.results.append(["scenario": "filled composer typography", "font": filledStyle.font.fontName, "size": String(Double(filledStyle.font.pointSize)), "reported": String(filledStyle.reported)]) }
+                        self.record("empty and filled composer use the same font and size", passed: emptyStyle != nil && filledStyle != nil && emptyStyle!.font.fontName == filledStyle!.font.fontName && abs(emptyStyle!.font.pointSize - filledStyle!.font.pointSize) < 0.1)
                         self.results.append(["scenario": "typed paragraph shape", "utf16Length": String(query.utf16.count), "selection": self.selection(element).map(NSStringFromRange) ?? "unavailable", "trailingNewline": String(query.hasSuffix("\n"))])
                         self.record("actual draft receives query and mask disappears", passed: self.read(element)?.trimmingCharacters(in: .newlines) == "ditto-e2e-" && mask?.isVisible != true)
                         guard !self.finished, self.key(48) else { return }
@@ -394,34 +400,133 @@ public final class NativeE2E {
 
     private func runEditor() {
         guard appID == "com.apple.TextEdit" else { finish(error: "No scenario for this app"); return }
-        guard key(45, flags: .maskCommand) else { return } // new disposable document
-        after(0.5) {
-            guard let element = self.focused(), self.read(element) == "" else { self.finish(error: "New document is not an empty fixture"); return }
-            self.fixture = element
-            guard self.type(self.token), self.key(0, flags: .maskCommand), self.key(8, flags: .maskCommand) else { return }
-            self.after(0.6) {
-                guard self.key(0, flags: .maskCommand), self.type("External ") else { return }
+        guard key(45, flags: .maskCommand) else { return }
+        after(0.1) { self.prepareEditor(attempts: 20) }
+    }
+
+    private func prepareEditor(attempts: Int) {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else { finish(error: "Destination lost foreground before fixture preparation"); return }
+        guard let element = focused(), read(element) == "" else {
+            if attempts > 0 { after(0.1) { self.prepareEditor(attempts: attempts - 1) } }
+            else { finish(error: "New document is not an empty fixture") }
+            return
+        }
+        self.fixture = element
+        guard self.type(self.token), self.key(0, flags: .maskCommand), self.key(8, flags: .maskCommand) else { return }
+        self.after(0.6) {
+            if CommandLine.arguments.contains("--e2e-typography") {
+                self.record("typography fixture copied through the real clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token)
+                self.typographyCase(index: 0)
+                return
+            }
+            guard self.key(0, flags: .maskCommand), self.type("External ") else { return }
+            self.after(0.3) {
+                guard self.check("fixture prepared", expected: "External ") else { return }
+                guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
                 self.after(0.3) {
-                    guard self.check("fixture prepared", expected: "External ") else { return }
-                    guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                    self.captureGhost(expectedPointSize: nil)
+                    guard self.type("dit") else { return }
                     self.after(0.3) {
-                        self.captureGhost(expectedPointSize: nil)
-                        guard self.type("dit") else { return }
-                        self.after(0.3) {
-                            guard self.key(48) else { return }
-                            self.after(0.4) {
-                                guard self.check("external completion", expected: "External " + self.token) else { return }
-                                guard self.key(6, flags: .maskCommand) else { return }
-                                self.after(0.3) {
-                                    guard self.check("one-step undo", expected: "External dit") else { return }
-                                    self.editorScenarios()
-                                }
+                        guard self.key(48) else { return }
+                        self.after(0.4) {
+                            guard self.check("external completion", expected: "External " + self.token) else { return }
+                            guard self.key(6, flags: .maskCommand) else { return }
+                            self.after(0.3) {
+                                guard self.check("one-step undo", expected: "External dit") else { return }
+                                self.editorScenarios()
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func typographyCase(index: Int) {
+        let drafts = ["Existing text ", "Previous line\n", ""]
+        guard index < drafts.count else { finish(); return }
+        let draft = drafts[index]
+        resetField(draft)
+        if draft.isEmpty { key(51) }
+        after(0.3) {
+            guard self.check("typography case \(index) draft acknowledged", expected: draft), self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+            self.after(0.6) {
+                guard let ghost = NSApp.windows.first(where: { $0.title == "Ditto completion" && $0.isVisible }), let view = ghost.contentView as? GhostTextView,
+                      view.text == self.token, let fixture = self.fixture, let field = self.elementBounds(fixture), let selected = self.selection(fixture) else { self.finish(error: "Typography fixture has no readable ghost/field"); return }
+                var range = CFRange(location: selected.location, length: 0)
+                var value: CFTypeRef?
+                var caret = CGRect.zero
+                guard let parameter = AXValueCreate(.cfRange, &range), AXUIElementCopyParameterizedAttributeValue(fixture, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
+                      let value, CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetValue(value as! AXValue, .cgRect, &caret) else { self.finish(error: "Typography caret bounds unavailable"); return }
+                let top = NSScreen.screens.first!.frame.maxY
+                if selected.location > 0 {
+                    var previous = CFRange(location: selected.location - 1, length: 1)
+                    var raw: CFTypeRef?
+                    var rect = CGRect.zero
+                    if let p = AXValueCreate(.cfRange, &previous), AXUIElementCopyParameterizedAttributeValue(fixture, kAXBoundsForRangeParameterizedAttribute as CFString, p, &raw) == .success, let raw, CFGetTypeID(raw) == AXValueGetTypeID(), AXValueGetValue(raw as! AXValue, .cgRect, &rect) { self.results.append(["scenario": "typography case \(index) previous glyph bounds", "rect": NSStringFromRect(rect)]) }
+                }
+                if let marker = self.attribute(fixture, "AXSelectedTextMarkerRange") {
+                    var raw: CFTypeRef?
+                    var rect = CGRect.zero
+                    if AXUIElementCopyParameterizedAttributeValue(fixture, "AXBoundsForTextMarkerRange" as CFString, marker, &raw) == .success, let raw, CFGetTypeID(raw) == AXValueGetTypeID(), AXValueGetValue(raw as! AXValue, .cgRect, &rect) { self.results.append(["scenario": "typography case \(index) marker bounds", "rect": NSStringFromRect(rect)]) }
+                }
+                let drawn = CGRect(x: ghost.frame.minX, y: top - ghost.frame.maxY, width: ghost.frame.width, height: ghost.frame.height)
+                let region = CGRect(x: drawn.minX + 2, y: drawn.minY, width: min(drawn.width, field.maxX - drawn.minX - 4), height: drawn.height).intersection(field)
+                self.results.append(["scenario": "typography case \(index) capture geometry", "caret": NSStringFromRect(caret), "ghost": NSStringFromRect(drawn), "field": NSStringFromRect(field), "region": NSStringFromRect(region)])
+                self.record("typography case \(index) stays inside the text field", passed: field.contains(drawn))
+                guard !self.finished else { return }
+                self.results.append(["scenario": "typography case \(index) style", "font": view.style.font.fontName, "size": String(Double(view.style.font.pointSize)), "baseline": String(Double(view.baselineOffsetFromTop))])
+                self.captureRegion(region) { before in
+                    guard !self.finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == self.expectedPID, self.focused().map({ CFEqual($0, fixture) }) == true, let before else { self.finish(error: "Typography capture lost fixture focus"); return }
+                    guard self.key(48) else { return }
+                    self.after(0.4) {
+                        guard self.check("typography case \(index) accepts the same words", expected: draft + self.token) else { return }
+                        guard self.key(123, flags: .maskCommand) else { return }
+                        self.after(0.15) {
+                            self.captureRegion(region) { accepted in
+                                guard !self.finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == self.expectedPID, self.focused().map({ CFEqual($0, fixture) }) == true, let accepted else { self.finish(error: "Typography reference lost fixture focus"); return }
+                                for (kind, image) in [("ghost", before), ("accepted", accepted)] { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: self.output.deletingPathExtension().appendingPathExtension("case-\(index)-\(kind).png")) }
+                                self.compareTypography(before, accepted, index: index)
+                                self.typographyCase(index: index + 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func elementBounds(_ element: AXUIElement) -> CGRect? {
+        guard let position = attribute(element, kAXPositionAttribute), let extent = attribute(element, kAXSizeAttribute), CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(extent) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(extent as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: point, size: size)
+    }
+
+    private func compareTypography(_ ghost: CGImage, _ accepted: CGImage, index: Int) {
+        func ink(_ image: CGImage) -> (CGRect, CGPoint)? {
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            guard let bg = bitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB) else { return nil }
+            var samples: [(Int, Int, Double)] = []
+            var peak = 0.0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), max(color.redComponent, color.greenComponent, color.blueComponent) - min(color.redComponent, color.greenComponent, color.blueComponent) < 0.15 else { continue }
+                    let contrast = abs((color.redComponent + color.greenComponent + color.blueComponent - bg.redComponent - bg.greenComponent - bg.blueComponent) / 3)
+                    peak = max(peak, contrast)
+                    samples.append((x, y, contrast))
+                }
+            }
+            guard peak > 0.1 else { return nil }
+            let body = samples.filter { $0.2 > peak * 0.2 }
+            guard let left = body.map(\.0).min(), let right = body.map(\.0).max(), let top = body.map(\.1).min(), let bottom = body.map(\.1).max() else { return nil }
+            let mass = body.reduce(0) { $0 + $1.2 }
+            return (CGRect(x: left, y: top, width: right - left, height: bottom - top), CGPoint(x: body.reduce(0) { $0 + Double($1.0) * $1.2 } / mass, y: body.reduce(0) { $0 + Double($1.1) * $1.2 } / mass))
+        }
+        guard let (before, first) = ink(ghost), let (after, second) = ink(accepted) else { record("typography case \(index) has measurable letter ink", passed: false); return }
+        let dx = first.x - second.x, dy = first.y - second.y
+        results.append(["scenario": "typography case \(index) actual ink", "dxPixels": String(Double(dx)), "dyPixels": String(Double(dy)), "widthDeltaPixels": String(Double(before.width - after.width)), "heightDeltaPixels": String(Double(before.height - after.height))])
+        record("typography case \(index) matches TextEdit's accepted glyphs", passed: abs(dx) <= 0.5 && abs(dy) <= 0.5 && abs(before.width - after.width) <= 1 && abs(before.height - after.height) <= 1)
     }
 
     private func runBrowser() {
@@ -561,27 +666,27 @@ public final class NativeE2E {
         results.append(["scenario": "ghost dimensions", "width": String(Double(window.frame.width)), "height": String(Double(window.frame.height))])
         record("inline ghost does not take focus", passed: !window.canBecomeKey)
         record("inline ghost has nonzero compact size", passed: window.frame.height > 0 && window.frame.height < 80 && window.frame.width > 20)
-        let texts = content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let texts = (content as? GhostTextView).map { [$0.text] } ?? []
         guard texts.first == token else { record("ghost suggests fresh clipboard item", passed: false); return }
         record("ghost suggests fresh clipboard item", passed: true)
         if appID == "com.apple.TextEdit", let fixture, read(fixture) == "External ",
-           let label = content.subviews.first as? NSTextField, let selection = selection(fixture) {
-            var range = CFRange(location: selection.location, length: 0)
+           let label = content as? GhostTextView, let selection = selection(fixture) {
+            var range = CFRange(location: selection.location - 1, length: 1)
             var value: CFTypeRef?
             var caret = CGRect.zero
             guard let parameter = AXValueCreate(.cfRange, &range),
                   AXUIElementCopyParameterizedAttributeValue(fixture, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
                   let value, CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetValue(value as! AXValue, .cgRect, &caret), caret.height > 0 else {
-                record("populated field exposes caret bounds", passed: false); return
+                record("populated field exposes adjacent glyph bounds", passed: false); return
             }
             let labelRect = window.convertToScreen(label.convert(label.bounds, to: nil))
             let top = NSScreen.screens.first!.frame.maxY
             let offset = labelRect.midY - (top - caret.midY)
-            results.append(["scenario": "populated-field line geometry", "verticalOffset": String(Double(offset)), "caretHeight": String(Double(caret.height))])
-            record("initial populated-field suggestion shares the caret line", passed: abs(offset) <= 4)
+            results.append(["scenario": "populated-field adjacent-glyph geometry", "verticalOffset": String(Double(offset)), "caretHeight": String(Double(caret.height))])
+            record("initial populated-field suggestion shares the preceding glyph line", passed: abs(offset) <= 4)
             guard !finished else { return }
         }
-        let font = (content.subviews.first as? NSTextField)?.font
+        let font = (content as? GhostTextView)?.style.font
         results.append(["scenario": "rendered font", "name": font?.fontName ?? "none", "size": String(Double(font?.pointSize ?? 0)), "fixedPitch": String(font?.isFixedPitch ?? false)])
         if let expectedPointSize {
             record("ghost matches destination font", passed: font?.isFixedPitch == true && abs((font?.pointSize ?? 0) - expectedPointSize) < 0.1)
@@ -785,7 +890,7 @@ public final class NativeE2E {
     }
 
     @discardableResult private func key(_ code: CGKeyCode, flags: CGEventFlags = []) -> Bool {
-        if isChatComposer, let fixture {
+        if isChatComposer || CommandLine.arguments.contains("--e2e-typography"), let fixture {
             guard let current = focused(), CFEqual(current, fixture) else { finish(error: "Stopped: composer lost focus"); return false }
         }
         guard !finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else {
@@ -802,7 +907,7 @@ public final class NativeE2E {
     }
 
     @discardableResult private func type(_ text: String) -> Bool {
-        if isChatComposer, let fixture {
+        if isChatComposer || CommandLine.arguments.contains("--e2e-typography"), let fixture {
             guard let current = focused(), CFEqual(current, fixture) else { finish(error: "Stopped: composer lost focus"); return false }
         }
         guard !finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == expectedPID else { finish(error: "Aborted: foreground app changed"); return false }

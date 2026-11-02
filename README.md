@@ -51,6 +51,7 @@ Images/files, customizable shortcuts and distribution are deferred. Actual globa
 ```sh
 swift run DittoTests
 swift run DittoUITests --output-directory .build/history-ui
+swift run DittoUITests --glyph-only --output-directory .build/history-ui
 swift build -c release --product Ditto
 ./scripts/build-app.sh
 build/Ditto.app/Contents/MacOS/Ditto --smoke-test
@@ -58,7 +59,7 @@ build/Ditto.app/Contents/MacOS/Ditto --smoke-test
 
 `DittoTests` is a dependency-free test executable. The installed Command Line Tools did not contain XCTest or Swift Testing, so `swift test` is not the test command. The tests use temporary databases and fixtures, never your clipboard. Smoke mode uses a temporary database and does not register the hotkey, start capture, request permissions, or modify your normal preferences; it opens setup and exits automatically.
 
-The native UI checks open a controlled sample panel, exercise the actual AppKit controls and render dark/light, empty, no-results and long-content fixtures. They do not write the clipboard or test insertion into another app. Their cached-view PNGs do not reproduce live desktop blur.
+The native UI checks compare native and ghost glyph pixels, then open a controlled sample history panel and exercise its actual AppKit controls. `--glyph-only` runs without showing a panel. They do not write the clipboard or test insertion into another app. Cached-view PNGs do not reproduce live desktop blur.
 
 The opt-in native runner uses real system-wide keys and the real clipboard in a disposable TextEdit document. Leave keyboard/focus alone while it runs:
 
@@ -67,9 +68,12 @@ The opt-in native runner uses real system-wide keys and the real clipboard in a 
 ./scripts/run-native-e2e.sh textedit-events
 ./scripts/run-native-e2e.sh history-textedit
 ./scripts/run-native-e2e.sh prefilled
+./scripts/run-native-e2e.sh typography
 ```
 
 `prefilled` uses generated native text fields to check baseline, line-end position, Escape and insertion with an existing draft. The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state. `history-textedit` focuses on the redesigned panel: filter without editing the host, no-result Return, Escape back to the original query, real history paste, and undo.
+
+`typography` captures generated suggestions in actual TextEdit, accepts them, and compares their letter positions and dimensions with the host-rendered result. It requires Screen Recording. Production baseline calibration samples only a narrow focused-field text strip locally in memory; it never saves those samples or uploads them. Fields that do not expose font information may still require inferred typography; compatibility is not inferred from a successful build.
 
 With Screen Recording enabled, `./scripts/run-native-e2e.sh history-ui` captures the real panel over generated sample content in dark/light/high-contrast appearances and checks OS keyboard navigation, filtering and Actions. It never reads clipboard history or pastes into another app. High contrast is a per-window appearance override, not a change to the system setting. Its acceptance assertion checks callback dispatch; external insertion is covered separately by `history-textedit`.
 

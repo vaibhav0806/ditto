@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Carbon
 import DittoCore
+import DittoUI
 import OSLog
 
 struct TextSnapshot {
@@ -10,10 +11,12 @@ struct TextSnapshot {
 }
 
 struct TextTarget {
+    private static var rememberedStyles: [Int: GhostTextStyle] = [:]
     private let element: AXUIElement?
     private let nativeView: NSTextView?
     let pid: pid_t
     var isNative: Bool { nativeView != nil }
+    var calibrationIdentity: Int { nativeView.map { ObjectIdentifier($0).hashValue } ?? element.map { Int(CFHash($0)) } ?? Int(pid) }
     var caret: CGRect? { caretBounds() }
     var fieldBounds: CGRect? {
         if let nativeView, let window = nativeView.window {
@@ -32,27 +35,41 @@ struct TextTarget {
         guard let snapshot = snapshot(), InputPolicy.isVisuallyBlank(snapshot.text), let caret, let frame = fieldBounds else { return nil }
         return PlaceholderMask.region(field: frame, caret: caret)
     }
-    var font: NSFont {
-        if let font = nativeView?.font { return font }
-        if let element, let snapshot = snapshot(), !snapshot.text.isEmpty,
+    var textStyle: GhostTextStyle {
+        func remember(_ style: GhostTextStyle) -> GhostTextStyle {
+            if Self.rememberedStyles.count >= 16 { Self.rememberedStyles.removeAll() }
+            Self.rememberedStyles[calibrationIdentity] = style
+            return style
+        }
+        if let nativeView {
+            let attributes = nativeView.typingAttributes
+            if let font = attributes[.font] as? NSFont ?? nativeView.font { return remember(GhostTextStyle(font: font, attributes: attributes)) }
+        }
+        if let element, let snapshot = rawSnapshot(), !snapshot.text.isEmpty,
            let caret = Range(NSRange(location: snapshot.selection.location, length: 0), in: snapshot.text)?.lowerBound {
             let start = caret == snapshot.text.startIndex ? caret : snapshot.text.index(before: caret)
             let end = caret == snapshot.text.startIndex ? snapshot.text.index(after: start) : caret
             let range = NSRange(start..<end, in: snapshot.text)
-            var cfRange = CFRange(location: range.location, length: range.length)
-            var value: CFTypeRef?
-            if let parameter = AXValueCreate(.cfRange, &cfRange),
-               AXUIElementCopyParameterizedAttributeValue(element, kAXAttributedStringForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
-               let attributed = value as? NSAttributedString, attributed.length > 0 {
-                if let font = attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont { return font }
-                let key = NSAttributedString.Key(kAXFontTextAttribute.takeUnretainedValue() as String)
-                if let info = attributed.attribute(key, at: 0, effectiveRange: nil) as? [String: Any],
-                   let name = info[kAXFontNameKey.takeUnretainedValue() as String] as? String,
-                   let size = info[kAXFontSizeKey.takeUnretainedValue() as String] as? NSNumber,
-                   let font = NSFont(name: name, size: CGFloat(size.doubleValue)) { return font }
-            }
+            if let style = readStyle(element, range: CFRange(location: range.location, length: range.length)) { return style.reported ? remember(style) : style }
         }
-        return .systemFont(ofSize: 14)
+        if let placeholder = placeholderElement(), let style = readStyle(placeholder, range: CFRange(location: 0, length: 1)) { return style.reported ? remember(style) : style }
+        if let remembered = Self.rememberedStyles[calibrationIdentity] { return remembered }
+        return GhostTextStyle(font: .systemFont(ofSize: NSFont.systemFontSize), reported: false)
+    }
+
+    private func readStyle(_ element: AXUIElement, range: CFRange) -> GhostTextStyle? {
+        var range = range
+        var value: CFTypeRef?
+        guard let parameter = AXValueCreate(.cfRange, &range), AXUIElementCopyParameterizedAttributeValue(element, kAXAttributedStringForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
+              let attributed = value as? NSAttributedString, attributed.length > 0 else { return nil }
+        let attributes = attributed.attributes(at: 0, effectiveRange: nil)
+        if let font = attributes[.font] as? NSFont { return GhostTextStyle(font: font, attributes: attributes) }
+        let key = NSAttributedString.Key(kAXFontTextAttribute.takeUnretainedValue() as String)
+        guard let info = attributes[key] as? [String: Any], let size = info[kAXFontSizeKey.takeUnretainedValue() as String] as? NSNumber else { return nil }
+        for key in [kAXFontNameKey.takeUnretainedValue() as String, kAXFontFamilyKey.takeUnretainedValue() as String] {
+            if let name = info[key] as? String, let font = NSFont(name: name, size: CGFloat(size.doubleValue)) { return GhostTextStyle(font: font, attributes: attributes) }
+        }
+        return GhostTextStyle(font: .systemFont(ofSize: CGFloat(size.doubleValue)), attributes: attributes, reported: false)
     }
 
     static func focused() -> TextTarget? {
@@ -115,6 +132,27 @@ struct TextTarget {
         if let placeholder = placeholderElement(), let rect = Self.bounds(placeholder), rect.height > 0, rect.height <= 64 {
             return CGRect(x: rect.minX, y: rect.minY, width: 1, height: rect.height)
         }
+        let collapsed = boundsForCharacters(NSRange(location: rawSnapshot()?.selection.location ?? 0, length: 0))
+        if let snapshot = rawSnapshot(), snapshot.selection.length == 0, let selected = Range(snapshot.selection, in: snapshot.text) {
+            if selected.lowerBound < snapshot.text.endIndex, !snapshot.text[selected.lowerBound].isNewline,
+               let next = boundsForCharacters(NSRange(selected.lowerBound..<snapshot.text.index(after: selected.lowerBound), in: snapshot.text)) {
+                return CGRect(x: collapsed?.minX ?? next.minX, y: next.minY, width: 0, height: next.height)
+            }
+            if selected.lowerBound > snapshot.text.startIndex {
+                let previousIndex = snapshot.text.index(before: selected.lowerBound)
+                if let previous = boundsForCharacters(NSRange(previousIndex..<selected.lowerBound, in: snapshot.text), allowWide: snapshot.text[previousIndex].isNewline) {
+                    if !snapshot.text[previousIndex].isNewline {
+                        return CGRect(x: collapsed?.minX ?? previous.maxX, y: previous.minY, width: 0, height: previous.height)
+                    }
+                    let prefix = snapshot.text[..<previousIndex]
+                    let paragraphStart = prefix.lastIndex(where: \.isNewline).map { snapshot.text.index(after: $0) } ?? snapshot.text.startIndex
+                    if paragraphStart < previousIndex, let first = boundsForCharacters(NSRange(paragraphStart..<snapshot.text.index(after: paragraphStart), in: snapshot.text)) {
+                        let y = collapsed.flatMap { $0.minY >= previous.maxY - 0.5 ? $0.minY : nil } ?? previous.maxY
+                        return CGRect(x: collapsed?.minX ?? first.minX, y: y, width: 0, height: previous.height)
+                    }
+                }
+            }
+        }
         var range = CFRange(location: snapshot()?.selection.location ?? 0, length: 0)
         var bounds: CFTypeRef?
         var rect = CGRect.zero
@@ -122,7 +160,10 @@ struct TextTarget {
            AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, value, &bounds) == .success,
            let bounds, CFGetTypeID(bounds) == AXValueGetTypeID(),
            AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0, rect.height <= 64 {
-            return rect
+            if let field = fieldBounds, rect.maxY <= field.minY, rawSnapshot()?.text.isEmpty == true {
+                return CGRect(x: rect.minX, y: field.minY, width: 0, height: rect.height)
+            }
+            if fieldBounds.map({ $0.intersects(rect.insetBy(dx: -0.5, dy: 0)) }) ?? true { return rect }
         }
         if let marker = Self.attribute(element, "AXSelectedTextMarkerRange"),
            AXUIElementCopyParameterizedAttributeValue(element, "AXBoundsForTextMarkerRange" as CFString, marker, &bounds) == .success,
@@ -141,6 +182,17 @@ struct TextTarget {
             }
         }
         return nil
+    }
+
+    private func boundsForCharacters(_ range: NSRange, allowWide: Bool = false) -> CGRect? {
+        guard let element else { return nil }
+        var characters = CFRange(location: range.location, length: range.length)
+        var value: CFTypeRef?
+        var rect = CGRect.zero
+        guard let parameter = AXValueCreate(.cfRange, &characters), AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.height > 0, rect.height <= 64, allowWide || rect.width <= max(24, rect.height * 4),
+              fieldBounds.map({ $0.intersects(rect.insetBy(dx: -0.5, dy: 0)) }) ?? true else { return nil }
+        return rect
     }
 
     private func placeholderElement() -> AXUIElement? {
