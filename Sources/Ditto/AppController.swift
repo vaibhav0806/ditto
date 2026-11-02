@@ -1,4 +1,6 @@
 import AppKit
+import CoreText
+import DittoUI
 import SwiftUI
 import Carbon
 import Combine
@@ -21,6 +23,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var target: TextTarget?
     private var session: CompletionSession?
     private var expectedQuery = CompletionSession()
+    private var placeholderBaseline: CGFloat?
     private var placeholderBackground: PlaceholderBackground?
     private var maskRequestID: UUID?
     private var maskAttempted = false
@@ -261,6 +264,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .typeNormally:
             overlay.hideForTyping()
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
             if let session {
@@ -480,6 +484,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let baseline = caret.flatMap { textCalibration.offset(target: target, style: style, caret: $0) }
         guard overlay.model.selected != nil else {
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
             overlay.showCompletion(caret: caret, style: style, inline: false)
@@ -488,6 +493,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let hasExistingText = target.snapshot().map { !InputPolicy.isVisuallyBlank($0.text) } ?? false
         if !session.query.isEmpty || hasExistingText {
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
             overlay.showCompletion(caret: caret, style: style, hasExistingText: hasExistingText, field: target.fieldBounds, baselineOffset: baseline)
@@ -502,7 +508,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let background = placeholderBackground {
             guard target.placeholderRegion == background.region else { cancel(); return }
-            overlay.showCompletion(caret: caret, style: style, background: background, field: target.fieldBounds)
+            overlay.showCompletion(caret: caret, style: style, background: background, field: target.fieldBounds, baselineOffset: placeholderBaseline)
             return
         }
         guard !maskAttempted, let region = target.placeholderRegion else {
@@ -514,16 +520,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let token = generation
         maskRequestID = requestID
         overlay.hideForTyping()
-        PlaceholderBackgroundSampler.capture(region: region, caret: caret, excludingWindows: overlay.excludedWindowIDs, isCurrent: { [weak self] in
+        PlaceholderBackgroundSampler.capture(region: region, caret: caret, pid: target.pid, excludingWindows: overlay.excludedWindowIDs, isCurrent: { [weak self] in
             guard let self else { return false }
             return self.generation == token && self.maskRequestID == requestID && self.session?.query.isEmpty == true
                 && target.isFocused() && target.placeholderRegion == region
-        }) { [weak self] background in
+        }) { [weak self] sample in
             guard let self, self.generation == token, self.maskRequestID == requestID,
                   self.session?.query.isEmpty == true, !self.browsing, target.isFocused() else { return }
             self.maskRequestID = nil
             guard target.placeholderRegion == region else { self.cancel(); return }
-            self.placeholderBackground = background
+            self.placeholderBaseline = nil
+            if let sample, let text = target.placeholderText, let caret = target.caret {
+                let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: style.attributes))
+                let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let relative = CGRect(x: caret.minX - region.minX + advance, y: caret.minY - region.minY, width: 0, height: caret.height)
+                self.placeholderBaseline = GhostTextMeasurement.baseline(image: sample.image, scale: sample.scale, text: text, style: style, caret: relative)?.offset
+            }
+            self.placeholderBackground = sample?.background
             self.renderCompletion()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -547,6 +560,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         browsing = false
         session = nil
         placeholderBackground = nil
+        placeholderBaseline = nil
         maskRequestID = nil
         maskAttempted = false
         expectedQuery = CompletionSession()

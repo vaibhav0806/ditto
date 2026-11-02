@@ -35,6 +35,10 @@ struct TextTarget {
         guard let snapshot = snapshot(), InputPolicy.isVisuallyBlank(snapshot.text), let caret, let frame = fieldBounds else { return nil }
         return PlaceholderMask.region(field: frame, caret: caret)
     }
+    var placeholderText: String? {
+        guard let placeholder = placeholderElement(), let text = Self.attribute(placeholder, kAXValueAttribute) as? String, text.utf16.count <= 512 else { return nil }
+        return text
+    }
     var textStyle: GhostTextStyle {
         func remember(_ style: GhostTextStyle) -> GhostTextStyle {
             if Self.rememberedStyles.count >= 16 { Self.rememberedStyles.removeAll() }
@@ -128,10 +132,10 @@ struct TextTarget {
             return CGRect(x: rect.minX, y: top - rect.maxY, width: max(1, rect.width), height: rect.height)
         }
         guard let element else { return nil }
-        if let snapshot = rawSnapshot(), let paragraph = emptyParagraphBounds(for: snapshot) { return paragraph }
         if let placeholder = placeholderElement(), let rect = Self.bounds(placeholder), rect.height > 0, rect.height <= 64 {
             return CGRect(x: rect.minX, y: rect.minY, width: 1, height: rect.height)
         }
+        if let snapshot = rawSnapshot(), let paragraph = emptyParagraphBounds(for: snapshot) { return paragraph }
         let collapsed = boundsForCharacters(NSRange(location: rawSnapshot()?.selection.location ?? 0, length: 0))
         if let snapshot = rawSnapshot(), snapshot.selection.length == 0, let selected = Range(snapshot.selection, in: snapshot.text) {
             if selected.lowerBound < snapshot.text.endIndex, !snapshot.text[selected.lowerBound].isNewline,

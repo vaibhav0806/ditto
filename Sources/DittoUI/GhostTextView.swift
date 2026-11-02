@@ -9,7 +9,7 @@ public enum GhostTextMeasurement {
 
     public static func baseline(image: CGImage, scale: CGFloat, text: String, style: GhostTextStyle, caret: CGRect) -> Baseline? {
         let width = image.width, height = image.height
-        guard width >= 8, width <= 1600, height >= 8, height <= 256, scale >= 1, scale <= 4, style.reported, text.filter({ !$0.isWhitespace }).count >= 4 else { return nil }
+        guard width >= 8, width <= 1600, height >= 8, height <= 256, scale >= 1, scale <= 4, text.filter({ !$0.isWhitespace }).count >= 4 else { return nil }
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         let format = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
         var source = [UInt8](repeating: 0, count: width * height * 4)

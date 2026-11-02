@@ -69,11 +69,12 @@ The opt-in native runner uses real system-wide keys and the real clipboard in a 
 ./scripts/run-native-e2e.sh history-textedit
 ./scripts/run-native-e2e.sh prefilled
 ./scripts/run-native-e2e.sh typography
+./scripts/run-native-e2e.sh t3-typography
 ```
 
 `prefilled` uses generated native text fields to check baseline, line-end position, Escape and insertion with an existing draft. The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state. `history-textedit` focuses on the redesigned panel: filter without editing the host, no-result Return, Escape back to the original query, real history paste, and undo.
 
-`typography` captures generated suggestions in actual TextEdit, accepts them, and compares their letter positions and dimensions with the host-rendered result. It requires Screen Recording. Production baseline calibration samples only a narrow focused-field text strip locally in memory; it never saves those samples or uploads them. Fields that do not expose font information may still require inferred typography; compatibility is not inferred from a successful build.
+`typography` captures generated suggestions in actual TextEdit, accepts them, and compares their letter positions and dimensions with the host-rendered result. After the `mask` fixture seeds the clipboard, `t3-typography` does the same for an already empty, focused T3 message composer and cleans up without sending. It requires Screen Recording. Production baseline calibration samples only a narrow focused-field text strip locally in memory; it never saves those samples or uploads them. Fields that do not expose font information may still require inferred typography; compatibility is not inferred from a successful build.
 
 With Screen Recording enabled, `./scripts/run-native-e2e.sh history-ui` captures the real panel over generated sample content in dark/light/high-contrast appearances and checks OS keyboard navigation, filtering and Actions. It never reads clipboard history or pastes into another app. High contrast is a per-window appearance override, not a change to the system setting. Its acceptance assertion checks callback dispatch; external insertion is covered separately by `history-textedit`.
 

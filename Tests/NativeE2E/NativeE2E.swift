@@ -41,6 +41,7 @@ public final class NativeE2E {
     private var checkedMaskAcceptance = false
     private var chatRegion: CGRect?
     private var chatField: CGRect?
+    private var chatPlaceholder: CGRect?
     private var historyLiveCheck: HistoryLiveCheck?
 
     public init(output: URL, appID: String = "com.apple.TextEdit") {
@@ -335,6 +336,7 @@ public final class NativeE2E {
         fixture = element
         results.append(["scenario": "initial empty paragraph", "utf16Length": String(initial.utf16.count), "selection": selection(element).map(NSStringFromRange) ?? "unavailable"])
         recordCapabilities(element)
+        if CommandLine.arguments.contains("--e2e-composer-typography") { emptyComposerTypography(element); return }
         guard key(9, flags: [.maskCommand, .maskAlternate]) else { return }
         after(1.2) {
             self.captureGhost(expectedPointSize: nil)
@@ -383,6 +385,42 @@ public final class NativeE2E {
                                 self.after(0.3) {
                                     self.record("test draft cleaned without sending", passed: self.read(element).map(InputPolicy.isVisuallyBlank) == true)
                                     self.finish()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func emptyComposerTypography(_ element: AXUIElement) {
+        guard let field = elementBounds(element), field.height >= 34 else { finish(error: "Composer geometry unavailable"); return }
+        let left = (chatPlaceholder?.minX ?? field.minX) + 2
+        let region = CGRect(x: left, y: field.minY + 2, width: min(700, field.maxX - left - 2), height: 30)
+        captureRegion(region) { original in
+            guard let original, self.read(element).map(InputPolicy.isVisuallyBlank) == true else { self.finish(error: "Empty composer changed before invocation"); return }
+            try? NSBitmapImageRep(cgImage: original).representation(using: .png, properties: [:])?.write(to: self.output.deletingPathExtension().appendingPathExtension("placeholder.png"))
+            guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+            self.after(1.2) {
+                guard let ghost = NSApp.windows.first(where: { $0.title == "Ditto completion" && $0.isVisible }), let view = ghost.contentView as? GhostTextView else { self.finish(error: "No empty composer suggestion"); return }
+                let top = NSScreen.screens.first!.frame.maxY
+                self.results.append(["scenario": "empty composer geometry", "ghost": NSStringFromRect(CGRect(x: ghost.frame.minX, y: top - ghost.frame.maxY, width: ghost.frame.width, height: ghost.frame.height)), "font": view.style.font.fontName, "size": String(Double(view.style.font.pointSize)), "baseline": String(Double(view.baselineOffsetFromTop)), "maskVisible": String(NSApp.windows.contains { $0.title == "Ditto placeholder mask" && $0.isVisible })])
+                self.captureRegion(region) { before in
+                    guard let before, self.key(48) else { return }
+                    self.after(0.4) {
+                        self.record("empty composer acceptance", passed: self.read(element)?.trimmingCharacters(in: .newlines) == self.token)
+                        guard !self.finished, self.key(123, flags: .maskCommand) else { return }
+                        self.after(0.15) {
+                            self.captureRegion(region) { accepted in
+                                guard let accepted else { return }
+                                for (kind, image) in [("ghost", before), ("accepted", accepted)] { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: self.output.deletingPathExtension().appendingPathExtension("case-0-\(kind).png")) }
+                                guard self.key(0, flags: .maskCommand), self.key(51) else { return }
+                                self.after(0.2) {
+                                    self.record("empty composer typography draft cleaned without sending", passed: self.read(element).map(InputPolicy.isVisuallyBlank) == true)
+                                    guard !self.finished else { return }
+                                    self.compareTypography(before, accepted, index: 0, host: self.appID)
+                                    if !self.finished { self.finish() }
                                 }
                             }
                         }
@@ -503,7 +541,7 @@ public final class NativeE2E {
         return CGRect(origin: point, size: size)
     }
 
-    private func compareTypography(_ ghost: CGImage, _ accepted: CGImage, index: Int) {
+    private func compareTypography(_ ghost: CGImage, _ accepted: CGImage, index: Int, host: String = "TextEdit") {
         func ink(_ image: CGImage) -> (CGRect, CGPoint)? {
             let bitmap = NSBitmapImageRep(cgImage: image)
             guard let bg = bitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB) else { return nil }
@@ -526,7 +564,7 @@ public final class NativeE2E {
         guard let (before, first) = ink(ghost), let (after, second) = ink(accepted) else { record("typography case \(index) has measurable letter ink", passed: false); return }
         let dx = first.x - second.x, dy = first.y - second.y
         results.append(["scenario": "typography case \(index) actual ink", "dxPixels": String(Double(dx)), "dyPixels": String(Double(dy)), "widthDeltaPixels": String(Double(before.width - after.width)), "heightDeltaPixels": String(Double(before.height - after.height))])
-        record("typography case \(index) matches TextEdit's accepted glyphs", passed: abs(dx) <= 0.5 && abs(dy) <= 0.5 && abs(before.width - after.width) <= 1 && abs(before.height - after.height) <= 1)
+        record("typography case \(index) matches \(host)'s accepted glyphs", passed: abs(dx) <= 0.5 && abs(dy) <= 0.5 && abs(before.width - after.width) <= 1 && abs(before.height - after.height) <= 1)
     }
 
     private func runBrowser() {
@@ -807,13 +845,14 @@ public final class NativeE2E {
                     var dimensions = CGSize.zero
                     AXValueGetValue(position as! AXValue, .cgPoint, &point)
                     AXValueGetValue(size as! AXValue, .cgSize, &dimensions)
-                    results.append(["scenario": "placeholder geometry", "rect": NSStringFromRect(CGRect(origin: point, size: dimensions))])
+                    results.append(["scenario": "placeholder geometry", "role": attribute(sibling, kAXRoleAttribute) as? String ?? "unknown", "rect": NSStringFromRect(CGRect(origin: point, size: dimensions))])
                     if attribute(sibling, kAXRoleAttribute) as? String == kAXStaticTextRole,
                        let fieldPosition = attribute(element, kAXPositionAttribute), let fieldSize = attribute(element, kAXSizeAttribute) {
                         var origin = CGPoint.zero
                         var extent = CGSize.zero
                         AXValueGetValue(fieldPosition as! AXValue, .cgPoint, &origin)
                         AXValueGetValue(fieldSize as! AXValue, .cgSize, &extent)
+                        chatPlaceholder = CGRect(origin: point, size: dimensions)
                         chatRegion = PlaceholderMask.region(field: CGRect(origin: origin, size: extent), caret: CGRect(x: point.x, y: point.y, width: 1, height: dimensions.height))
                     }
                 }

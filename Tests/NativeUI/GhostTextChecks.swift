@@ -99,6 +99,10 @@ func runGhostTextChecks(output: String) {
                 let measured = GhostTextMeasurement.baseline(image: sample.cgImage!, scale: CGFloat(scale), text: prefix, style: GhostTextStyle(font: font), caret: CGRect(x: caret.minX, y: line.minY + 5, width: 0, height: caret.height))
                 let desired = GhostTextStyle(font: font).baselineOffset(lineHeight: caret.height) + 3
                 check("measured host ink corrects a displaced caret at \(scale)x", measured.map { abs($0.offset - desired) <= 0.5 / CGFloat(scale) } == true)
+                let provisional = GhostTextMeasurement.baseline(image: sample.cgImage!, scale: CGFloat(scale), text: prefix, style: GhostTextStyle(font: font, reported: false), caret: CGRect(x: caret.minX, y: line.minY + 5, width: 0, height: caret.height))
+                check("known placeholder ink can verify a provisional font at \(scale)x", provisional.map { abs($0.offset - desired) <= 0.5 / CGFloat(scale) } == true)
+                let wrong = GhostTextMeasurement.baseline(image: sample.cgImage!, scale: CGFloat(scale), text: prefix, style: GhostTextStyle(font: NSFont(name: "Menlo", size: 16)!, reported: false), caret: CGRect(x: caret.minX, y: line.minY + 5, width: 0, height: caret.height))
+                check("mismatched provisional font cannot claim a baseline at \(scale)x", wrong == nil)
                 let blank = bitmap(native(""))
                 check("empty pixels cannot claim a measured baseline at \(scale)x", GhostTextMeasurement.baseline(image: blank.cgImage!, scale: CGFloat(scale), text: prefix, style: GhostTextStyle(font: font), caret: CGRect(x: caret.minX, y: 0, width: 0, height: caret.height)) == nil)
             }

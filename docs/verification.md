@@ -1,5 +1,26 @@
 # Native prototype verification
 
+## Empty-field placement follow-up — 2026-11-03
+
+The original T3 size-consistency check allowed a rejected mask and separate below-line preview, so its pass did not establish inline empty-field placement. The new `t3-typography` regression compares the first input line's actual ghost pixels against the same accepted text and cleans the generated draft without sending. It failed before the correction with a 545-pixel width mismatch because the original placeholder was still visible and the ghost was below it. Merely preferring the 17 pt placeholder text box over the 23 pt paragraph group did not fix capture rejection.
+
+The actual compositor sample contained a localized tinted patch crossing its border, with otherwise uniform background. The exact source of that patch was not identified. Sampling only the focused application's windows, with Ditto overlays excluded, removed the rejection without changing the strict color/texture rules. The mask then appeared and the ghost stayed on the line, but the actual accepted-text comparison still failed at +0.70 device pixel vertically. Comparing the known placeholder's pixels with the provisional typography before masking now supplies a confidence-checked baseline; no T3-specific pixel offset is stored.
+
+Fresh results for this correction:
+
+| Check | Observed result |
+| --- | --- |
+| Core tests | 30 passed, zero failures |
+| Native glyph/calibration checks | 40 passed, zero failures; the new provisional-font positive checks failed before the change, and mismatched-font/blank-image rejection still passes at 1x/2x |
+| Actual empty T3 pixel comparison | 4 passing results including runner; mask visible; x displacement +0.079 pixel, y displacement -0.299 pixel, width difference 0, ink-height difference 1 pixel |
+| Full actual T3 completion sequence | 14 passing results including runner; visible mask, unchanged empty draft, Escape, same 14 pt font before/after typing, mask removal on typing, Tab, clipboard preservation, native undo and cleanup |
+| Actual TextEdit pixel comparison | 14 passing results including runner; empty, filled and new-line letter width/height differences 0; absolute centroid displacement below 0.025 device pixel |
+| Live mask regressions | 27 passing results including runner; dark/white/gray pixel checks, Escape, typing, acceptance/undo and texture rejection |
+
+Controlled ghost/accepted PNG pairs were visually inspected. The font remains correctly marked inferred where AX does not expose it; the glyph match verifies this generated reference, not every font/script or host. The sample image exists only during the capture callback; the active session retains the background and numeric baseline. Capture still rejects ambiguous backgrounds, and that fallback is not a universal empty-field typography signoff. No shell integration, host-document sentinel or per-application position table was added. The earlier broad TextEdit multi-copy driver failure and the other compatibility gaps below remain separate.
+
+The [OSS follow-up](research/2026-11-03-ghost-text-typography.md#empty-field-follow-up) distinguishes reusable baseline/capture ideas from paths that explicitly require an existing line prefix.
+
 ## Core Text renderer and actual glyph validation — 2026-11-03
 
 The renderer now draws Core Text glyphs at an explicit typesetter baseline rather than centering an NSTextField. It preserves reported font/paragraph/spacing attributes, retains fractional placement after window rounding, and can refine the baseline through a bounded local comparison with nearby host text. No application-specific position offsets are used; no upstream implementation was copied. Production measurements remain in memory and reject stale focus, Secure Input, unknown fonts, nonuniform backgrounds and weak matches.
