@@ -1,5 +1,23 @@
 # Native prototype verification
 
+## Search-panel refresh — 2026-11-03
+
+The expanded history panel now uses native AppKit controls and the reviewed 680 × 440 pt layout. Matching, capture, inline masking, and insertion routes retain their existing contracts. The following results belong to this UI revision; older entries below remain historical.
+
+| Check | Observed result | Scope |
+| --- | --- | --- |
+| `swift run DittoTests` | 30 passed, zero failures | Core behavior, placement, Unicode-safe bounded presentation, history selection bounds |
+| `swift run DittoUITests --output-directory .build/history-ui` | 29 passed, zero failures | Actual AppKit controls: focus, search, selection, Actions, preview, no-result Return, hidden-view isolation; controlled cached-view screenshots |
+| `./scripts/run-native-e2e.sh history-ui` | 11 passing results including runner | Real OS keys in the signed app; live compositor captures over generated workspace content in dark, light, and per-window high-contrast appearances |
+| `./scripts/run-native-e2e.sh history-textedit` | 15 passing results including runner | Real copy/capture/global invocation, inline acceptance/undo, history filtering, empty-result Return, Escape restoring original host query, real history paste and one-step undo in TextEdit |
+| `./scripts/build-app.sh`, strict codesign verification | Passed | Signed local release bundle; no distribution/notarization claim |
+
+The live history UI fixture uses sample data and acceptance callbacks, not the user's history or external paste. The separate TextEdit run reads back actual destination text after system-key acceptance. Cached-view screenshots establish control rendering, not desktop blur. Live PNGs and JSON stay in ignored `.build/`. Increase Contrast screenshots use an `accessibilityHighContrastDarkAqua` appearance override; global accessibility settings, VoiceOver speech, and Reduce Transparency were not manually exercised in this iteration.
+
+PixelDesign reviewed the concept and native captures by email. The implementation addresses the native review's three must-fixes: readable flattened multiline excerpts (display only), primary footer hierarchy, and clean no-results with no-op Return. Whitespace markers are off, source icons resolve from bundle IDs, preview wrapping uses hanging indents, and the selectable original text remains unchanged. Updated live captures were sent for final visual feedback.
+
+The broader `textedit` regression run did **not** finish: after successful capture, invocation, acceptance, undo and immediate Tab, its later synthetic Cmd-A left an empty selection in the acknowledged fixture. The runner stops on that assertion. This is not counted as a full pass or a verified application regression; the cause of that driver/host selection failure remains unresolved. The focused history runner passes independently without that multi-copy preparation sequence. Ghostty, WhatsApp and browser compatibility are not established by this UI revision.
+
 Latest iteration: 2026-11-02. This is an experimental build, not a completed any-app handoff.
 
 ## Automated checks

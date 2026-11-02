@@ -62,7 +62,7 @@ private final class HistoryCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func setSelected(_ selected: Bool) {
-        title.textColor = selected ? .selectedMenuItemTextColor : .labelColor
+        title.attributedStringValue = NSAttributedString(string: title.stringValue, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .regular), .foregroundColor: selected ? NSColor.alternateSelectedControlTextColor : NSColor.labelColor])
         age.textColor = selected ? .selectedMenuItemTextColor : .secondaryLabelColor
         pin.contentTintColor = selected ? .selectedMenuItemTextColor : .tertiaryLabelColor
     }
@@ -83,6 +83,7 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
     private let copied = NSTextField(labelWithString: "")
     private let size = NSTextField(labelWithString: "")
     private let limit = NSTextField(wrappingLabelWithString: "")
+    private let metadata = NSStackView()
     private let context = NSTextField(labelWithString: "")
     private let primary = NSButton(title: "Copy ↵", target: nil, action: nil)
     private let actions = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -94,6 +95,13 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
     private var observation: AnyCancellable?
     private var appearanceObserver: NSObjectProtocol?
     private var refreshScheduled = false
+    private let copiedFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
 
     public init(model: OverlayModel) {
         self.model = model
@@ -130,11 +138,12 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         search.setAccessibilityLabel("Search clipboard history")
         escape.font = .systemFont(ofSize: 11)
         escape.textColor = .secondaryLabelColor
+        escape.setAccessibilityElement(false)
         escape.setContentCompressionResistancePriority(.required, for: .horizontal)
         let headerStack = NSStackView(views: [destination, search, escape])
-        headerStack.spacing = 12
-        destination.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        destination.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        headerStack.spacing = 8
+        destination.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        destination.heightAnchor.constraint(equalToConstant: 16).isActive = true
         embed(headerStack, in: header, horizontal: 16, vertical: 12)
 
         let body = NSView()
@@ -155,6 +164,7 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         listScroll.drawsBackground = false
         listScroll.hasVerticalScroller = true
         listScroll.autohidesScrollers = true
+        listScroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 6, right: 0)
         embed(listScroll, in: list)
         empty.font = .systemFont(ofSize: 13)
         empty.textColor = .secondaryLabelColor
@@ -167,17 +177,19 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         preview.identifier = NSUserInterfaceItemIdentifier("DittoHistoryPreview")
         preview.isSelectable = true
         preview.drawsBackground = false
-        preview.textContainerInset = NSSize(width: 16, height: 14)
+        preview.textContainerInset = NSSize(width: 16, height: 12)
         preview.isHorizontallyResizable = false
         preview.autoresizingMask = [.width]
         preview.textContainer?.widthTracksTextView = true
-        preview.layoutManager?.showsInvisibleCharacters = true
+        preview.layoutManager?.showsInvisibleCharacters = false
         preview.setAccessibilityLabel("Selected clipboard text preview")
         previewScroll.documentView = preview
         previewScroll.drawsBackground = false
         previewScroll.hasVerticalScroller = true
         previewScroll.autohidesScrollers = true
-        let metadata = NSStackView(views: [metadataRow("Source", source), metadataRow("Copied", copied), metadataRow("Size", size), limit])
+        metadata.identifier = NSUserInterfaceItemIdentifier("DittoHistoryMetadata")
+        let metadataRows: [NSView] = [metadataRow("Source", source), metadataRow("Copied", copied), metadataRow("Size", size), limit]
+        metadataRows.forEach { metadata.addArrangedSubview($0) }
         metadata.orientation = .vertical
         metadata.alignment = .leading
         metadata.spacing = 6
@@ -188,10 +200,12 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         }
         limit.font = .systemFont(ofSize: 10)
         limit.textColor = .secondaryLabelColor
-        for view in [previewScroll, metadata] { view.translatesAutoresizingMaskIntoConstraints = false; detail.addSubview(view) }
+        let previewRule = separator()
+        for view in [previewScroll, previewRule, metadata] { view.translatesAutoresizingMaskIntoConstraints = false; detail.addSubview(view) }
         NSLayoutConstraint.activate([
             previewScroll.topAnchor.constraint(equalTo: detail.topAnchor), previewScroll.leadingAnchor.constraint(equalTo: detail.leadingAnchor), previewScroll.trailingAnchor.constraint(equalTo: detail.trailingAnchor),
-            previewScroll.bottomAnchor.constraint(equalTo: metadata.topAnchor, constant: -12),
+            previewScroll.bottomAnchor.constraint(equalTo: previewRule.topAnchor, constant: -2),
+            previewRule.leadingAnchor.constraint(equalTo: detail.leadingAnchor, constant: 16), previewRule.trailingAnchor.constraint(equalTo: detail.trailingAnchor, constant: -16), previewRule.heightAnchor.constraint(equalToConstant: 1), previewRule.bottomAnchor.constraint(equalTo: metadata.topAnchor, constant: -10),
             metadata.leadingAnchor.constraint(equalTo: detail.leadingAnchor, constant: 16), metadata.trailingAnchor.constraint(equalTo: detail.trailingAnchor, constant: -16), metadata.bottomAnchor.constraint(equalTo: detail.bottomAnchor, constant: -16)
         ])
         let verticalRule = separator()
@@ -208,16 +222,18 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         context.lineBreakMode = .byTruncatingTail
         context.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         context.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        primary.font = .systemFont(ofSize: 12, weight: .medium)
+        primary.font = .systemFont(ofSize: 13, weight: .medium)
         primary.isBordered = false
         primary.keyEquivalent = "\r"
         primary.keyEquivalentModifierMask = []
         primary.target = self
         primary.action = #selector(accept)
         actions.isBordered = false
-        actions.font = .systemFont(ofSize: 12)
+        actions.font = .systemFont(ofSize: 13)
+        actions.setAccessibilityLabel("Actions")
         actions.menu = NSMenu()
         actions.menu?.addItem(withTitle: "Actions  ⌘K", action: nil, keyEquivalent: "")
+        actions.menu?.item(at: 0)?.attributedTitle = actionTitle("Actions", shortcut: "⌘K", primary: false)
         for (index, item) in [("Copy", "c"), ("Pin", "p"), ("Delete", "\u{8}")].enumerated() {
             let action = NSMenuItem(title: item.0, action: #selector(menuAction(_:)), keyEquivalent: item.1)
             action.keyEquivalentModifierMask = .command
@@ -259,7 +275,17 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
     }
 
     private func updateMaterial() {
-        layer?.backgroundColor = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? NSColor.windowBackgroundColor.cgColor : nil
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? NSColor.windowBackgroundColor.cgColor : nil
+        }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateMaterial() }
+
+    private func actionTitle(_ title: String, shortcut: String, primary: Bool) -> NSAttributedString {
+        let value = NSMutableAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: primary ? .medium : .regular), .foregroundColor: primary ? NSColor.labelColor : NSColor.secondaryLabelColor])
+        value.append(NSAttributedString(string: "  " + shortcut, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.tertiaryLabelColor]))
+        return value
     }
 
     public func focusSearch() {
@@ -273,7 +299,9 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
 
     private func refresh() {
         if search.stringValue != model.query { search.stringValue = model.query }
-        escape.stringValue = model.canReturnToCompletion ? "esc  Back to suggestions" : "esc  Close"
+        let hint = NSMutableAttributedString(string: "esc  ", attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.tertiaryLabelColor])
+        hint.append(NSAttributedString(string: model.canReturnToCompletion ? "Back to suggestions" : "Close", attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
+        escape.attributedStringValue = hint
         destination.image = appIcon(model.destinationBundleID)
         destination.setAccessibilityLabel(model.destinationName.isEmpty ? "Clipboard history" : "Destination: \(model.destinationName)")
         let changed = displayedEntries != model.entries || displayedQuery != model.query
@@ -301,13 +329,22 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         }
         listScroll.isHidden = model.entries.isEmpty
         empty.isHidden = !model.entries.isEmpty
-        empty.stringValue = model.query.isEmpty ? "Nothing copied yet.\n\nCopy some text anywhere and it’ll show up here. History stays on this Mac." : "No clips match “\(model.query)”\n\nTry a shorter phrase, or press Esc to go back."
-        primary.title = model.canInsert ? "Paste to \(model.destinationName.isEmpty ? "App" : model.destinationName)  ↵" : "Copy  ↵"
+        let emptyTitle = model.query.isEmpty ? "Nothing copied yet" : "No clips match “\(String(model.query.prefix(80)))\(model.query.count > 80 ? "…" : "")”"
+        let emptyBody = model.query.isEmpty ? "Copy some text anywhere and it’ll show up here. History stays on this Mac." : "Try a shorter phrase, or press Esc to go back."
+        let emptyStyle = NSMutableParagraphStyle(); emptyStyle.paragraphSpacing = 4
+        let emptyText = NSMutableAttributedString(string: emptyTitle + "\n" + emptyBody, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: emptyStyle])
+        emptyText.addAttributes([.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: NSColor.labelColor], range: NSRange(location: 0, length: emptyTitle.utf16.count))
+        empty.attributedStringValue = emptyText
+        let primaryLabel = model.canInsert ? "Paste to \(model.destinationName.isEmpty ? "App" : model.destinationName)" : "Copy"
+        primary.attributedTitle = actionTitle(primaryLabel, shortcut: "↵", primary: true)
+        primary.setAccessibilityLabel(primaryLabel)
         primary.isEnabled = model.selected != nil
-        context.stringValue = model.canInsert ? "" : "Enter copies to the clipboard"
+        context.stringValue = model.canInsert ? "" : model.destinationName.isEmpty ? "Copy a clip, then paste with ⌘V" : "Direct paste unavailable in \(model.destinationName)"
         context.toolTip = model.message
         actions.isEnabled = model.selected != nil
         actions.menu?.item(at: 2)?.title = model.selected?.pinned == true ? "Unpin" : "Pin"
+        metadata.isHidden = model.selected == nil
+        previewScroll.isHidden = model.selected == nil
         if previewID != model.selected?.id || changed {
             previewID = model.selected?.id
             let text = model.selected?.text ?? ""
@@ -315,12 +352,24 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
             let monospaced = text.contains(where: \.isNewline) || text.first?.isWhitespace == true
             preview.font = monospaced ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 13)
             preview.textColor = .labelColor
-            let paragraph = NSMutableParagraphStyle(); paragraph.lineHeightMultiple = 1.45
+            let paragraph = NSMutableParagraphStyle(); paragraph.lineHeightMultiple = monospaced ? 1.3 : 1.45
             preview.defaultParagraphStyle = paragraph
             preview.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: preview.string.utf16.count))
+            if monospaced, let font = preview.font {
+                let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+                (preview.string as NSString).enumerateSubstrings(in: NSRange(location: 0, length: preview.string.utf16.count), options: .byParagraphs) { line, _, range, _ in
+                    var columns = 0
+                    for character in (line ?? "").prefix(while: { $0 == " " || $0 == "\t" }) { columns += character == "\t" ? 4 - columns % 4 : 1 }
+                    let indented = paragraph.mutableCopy() as! NSMutableParagraphStyle
+                    indented.headIndent = CGFloat(columns + 2) * spaceWidth
+                    indented.tabStops = []
+                    indented.defaultTabInterval = spaceWidth * 4
+                    self.preview.textStorage?.addAttribute(.paragraphStyle, value: indented, range: range)
+                }
+            }
             preview.scrollToBeginningOfDocument(nil)
             source.stringValue = model.selected?.source ?? ""
-            copied.stringValue = model.selected?.copiedAt.formatted(date: .abbreviated, time: .shortened) ?? ""
+            copied.stringValue = model.selected.map { copiedFormatter.string(from: $0.copiedAt) } ?? ""
             let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
             size.stringValue = model.selected == nil ? "" : "\(text.count.formatted()) characters" + (lines > 1 ? " · \(lines.formatted()) lines" : "")
             limit.stringValue = text.count > 5_000 ? "Showing the first 5,000 of \(text.count.formatted()) characters" : ""
@@ -330,7 +379,7 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
 
     private func appIcon(_ bundleID: String) -> NSImage? {
         if let cached = iconCache[bundleID] { return cached }
-        let image = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)
+        let image = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSImage(systemSymbolName: "doc.plaintext", accessibilityDescription: nil)
         if let image { iconCache[bundleID] = image }
         return image
     }

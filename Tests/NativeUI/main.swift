@@ -84,6 +84,7 @@ check("search receives initial keyboard focus", window.firstResponder === editor
 check("native table has accessible row semantics", table.accessibilityRole() == .table && (0..<table.numberOfRows).filter { table.delegate?.tableView?(table, shouldSelectRow: $0) == true }.count == clips.count)
 check("results are dense 34 point rows", table.rect(ofRow: 1).height == 34)
 check("preview retains original selectable text", text.string == clips[0].text && text.isSelectable && !text.isEditable)
+check("preview whitespace markers are quiet by default", text.layoutManager?.showsInvisibleCharacters == false)
 func key(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = []) {
     let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
     editor.keyDown(with: event)
@@ -117,6 +118,7 @@ check("Actions returns keyboard focus to search", window.firstResponder === sear
 model.onQuery?("no matching sample")
 pump()
 check("no results clears selection and keeps panel size", model.entries.isEmpty && table.selectedRow == -1 && view.bounds.size == CGSize(width: 680, height: 440))
+check("no results hides the metadata grid", descendants(view).first { $0.identifier?.rawValue == "DittoHistoryMetadata" }?.isHidden == true)
 key(36, "\r")
 check("Return with no results leaves search open", accepted == 1 && model.query == "no matching sample" && window.isVisible)
 snapshot("history-no-results", appearance: .darkAqua)
@@ -124,7 +126,7 @@ model.entries = []
 model.query = ""
 pump()
 snapshot("history-empty", appearance: .aqua)
-model.entries = [ClipboardEntry(text: String(repeating: "👩🏽‍💻 sample line\n", count: 600), source: "TextEdit")]
+model.entries = [ClipboardEntry(text: String(repeating: "👩🏽‍💻 sample line\n", count: 600), source: "TextEdit", sourceBundleID: "com.apple.TextEdit")]
 model.selectedIndex = 0
 pump()
 check("long preview is bounded without splitting emoji", text.string.count == 5_000 && model.entries[0].text.hasPrefix(text.string))

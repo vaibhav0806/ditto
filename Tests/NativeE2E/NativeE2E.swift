@@ -40,6 +40,7 @@ public final class NativeE2E {
     private var checkedMaskAcceptance = false
     private var chatRegion: CGRect?
     private var chatField: CGRect?
+    private var historyLiveCheck: HistoryLiveCheck?
 
     public init(output: URL, appID: String = "com.apple.TextEdit") {
         self.output = output
@@ -53,6 +54,12 @@ public final class NativeE2E {
     public func start() {
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else { finish(error: "Ditto's OS event permissions are unavailable"); return }
         if appID == "com.vaibhav0806.ditto" {
+            if CommandLine.arguments.contains("--e2e-history-ui") {
+                expectedPID = ProcessInfo.processInfo.processIdentifier
+                historyLiveCheck = HistoryLiveCheck(output: output, onCheck: { [weak self] in self?.record($0, passed: $1) }, onComplete: { [weak self] in self?.finish(error: $0) }, key: { [weak self] in self?.key($0, flags: $1) ?? false }, type: { [weak self] in self?.type($0) ?? false })
+                historyLiveCheck?.start()
+                return
+            }
             if CommandLine.arguments.contains("--e2e-mask-permission") {
                 results.append(["scenario": "screen capture access", "allowed": String(CGPreflightScreenCaptureAccess())])
                 finish()
@@ -425,19 +432,34 @@ public final class NativeE2E {
     }
 
     private func editorScenarios() {
+        if CommandLine.arguments.contains("--e2e-history-textedit") {
+            historyEditorScenarios()
+            return
+        }
         let eventQuery = CommandLine.arguments.contains("--e2e-event-query")
         let steps: [() -> Void] = [
             { self.record("completion preserves clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token); self.resetField("Fast ") },
             { self.key(9, flags: [.maskCommand, .maskAlternate]) },
             { self.type("dit"); self.key(48) },
-            { _ = self.check("immediate Tab accepts current query", expected: "Fast " + self.token); self.resetField(self.token + "-first"); self.key(0, flags: .maskCommand); self.key(8, flags: .maskCommand) },
-            { self.resetField(self.token + "-second"); self.key(0, flags: .maskCommand); self.key(8, flags: .maskCommand) },
-            { self.resetField("Cycle ") },
+            { _ = self.check("immediate Tab accepts current query", expected: "Fast " + self.token); self.resetField(self.token + "-first") },
+            { guard self.check("first copy fixture acknowledged", expected: self.token + "-first") else { return }; self.key(0, flags: .maskCommand) },
+            { self.results.append(["scenario": "first selection diagnostic", "selection": self.fixture.flatMap(self.selection).map(NSStringFromRange) ?? "unavailable", "focusedFixture": String(self.focused().map { current in self.fixture.map { CFEqual(current, $0) } ?? false } ?? false)]); self.record("first copy selection acknowledged", passed: self.fixture.flatMap(self.selection) == NSRange(location: 0, length: (self.token + "-first").utf16.count)); self.key(8, flags: .maskCommand) },
+            { self.record("first copy reached clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token + "-first"); self.resetField(self.token + "-second") },
+            { guard self.check("second copy fixture acknowledged", expected: self.token + "-second") else { return }; self.key(0, flags: .maskCommand) },
+            { self.record("second copy selection acknowledged", passed: self.fixture.flatMap(self.selection) == NSRange(location: 0, length: (self.token + "-second").utf16.count)); self.key(8, flags: .maskCommand) },
+            { self.record("second copy reached clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token + "-second"); self.resetField("Cycle ") },
             { self.key(9, flags: [.maskCommand, .maskAlternate]) },
             { self.type(self.token) },
             { self.key(125) },
             { self.key(48) },
             { _ = self.check("cycle chooses older matching item", expected: "Cycle " + self.token + "-first"); self.record("cycling preserves clipboard", passed: NSPasteboard.general.string(forType: .string) == self.token + "-second"); self.resetField("History ") },
+            { self.key(9, flags: [.maskCommand, .maskAlternate]) },
+            { self.type("dit") },
+            { self.key(37, flags: .maskCommand) },
+            { self.type("no-such-history-filter") },
+            { self.key(53) },
+            { _ = self.check("history Escape preserves original host query", expected: "History dit"); self.key(48) },
+            { _ = self.check("autocomplete resumes after discarded history filter", expected: "History " + self.token + "-second"); self.resetField("History ") },
             { self.key(9, flags: [.maskCommand, .maskAlternate]) },
             { self.type(self.token) },
             { self.key(37, flags: .maskCommand) },
@@ -451,6 +473,28 @@ public final class NativeE2E {
     private func resetField(_ text: String) {
         guard !finished, key(0, flags: .maskCommand) else { return }
         _ = type(text)
+    }
+
+    private func historyEditorScenarios() {
+        let steps: [() -> Void] = [
+            { self.resetField("History ") },
+            { guard self.check("history host fixture acknowledged", expected: "History ") else { return }; self.key(9, flags: [.maskCommand, .maskAlternate]) },
+            { self.type("dit") },
+            { self.key(37, flags: .maskCommand) },
+            { self.record("redesigned history opens explicitly", passed: NSApp.windows.contains { $0.isVisible && $0.level == .floating && $0.canBecomeKey }); self.type("-no-such-filter") },
+            { self.key(36) },
+            { guard self.check("no-result Return leaves host unchanged", expected: "History dit") else { return }; self.key(53) },
+            { guard self.check("history Escape preserves host query", expected: "History dit") else { return }; self.key(48) },
+            { guard self.check("autocomplete resumes for original host query", expected: "History " + self.token) else { return }; self.resetField("History ") },
+            { self.key(9, flags: [.maskCommand, .maskAlternate]) },
+            { self.type("dit") },
+            { self.key(37, flags: .maskCommand) },
+            { self.type(String(self.token.dropFirst(3))) },
+            { self.key(36) },
+            { guard self.check("redesigned history pastes into TextEdit", expected: "History " + self.token) else { return }; self.key(6, flags: .maskCommand) },
+            { _ = self.check("history paste preserves one-step undo", expected: "History dit") }
+        ]
+        runSteps(steps) { self.finish() }
     }
 
     private func runSteps(_ steps: [() -> Void], index: Int = 0, done: @escaping () -> Void) {
@@ -627,18 +671,26 @@ public final class NativeE2E {
         after(0.2) {
             guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
             self.after(0.2) {
-                guard self.type("di"), self.key(53), self.key(48) else { return }
-                self.after(0.3) {
-                    guard self.check("escape preserves typing", expected: "Keep di\t") else { return }
-                    self.resetField("Switch ")
+                guard self.type("di") else { return }
+                self.after(0.2) {
+                    guard self.check("typed query acknowledged before Escape", expected: "Keep di"), self.key(53) else { return }
                     self.after(0.2) {
-                        guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
-                        self.after(0.2) {
-                            guard self.type("dit") else { return }
-                            self.after(0.2) { self.switchAppScenario(expectedSource: "Switch dit") }
-                        }
+                        guard self.check("Escape leaves typed query unchanged", expected: "Keep di"), self.key(48) else { return }
+                        self.after(0.2) { self.finishEscapeScenario() }
                     }
                 }
+            }
+        }
+    }
+
+    private func finishEscapeScenario() {
+        guard check("escape preserves typing", expected: "Keep di\t") else { return }
+        resetField("Switch ")
+        after(0.2) {
+            guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+            self.after(0.2) {
+                guard self.type("dit") else { return }
+                self.after(0.2) { self.switchAppScenario(expectedSource: "Switch dit") }
             }
         }
     }

@@ -17,8 +17,8 @@ public enum HistoryPresentation {
     }
 
     public static func rowTitle(_ text: String) -> String {
-        guard let line = text.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return "Whitespace" }
-        return String(line.prefix(500)).components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
+        let title = text.split(whereSeparator: \.isWhitespace).prefix(100).joined(separator: " ")
+        return title.isEmpty ? "Whitespace" : String(title.prefix(500))
     }
 
     public static func preview(_ text: String) -> String { String(text.prefix(5_000)) }

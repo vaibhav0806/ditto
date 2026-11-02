@@ -32,24 +32,25 @@ Execute inline using executing-plans. The user explicitly requested implementati
 
 Files: add Sources/DittoCore/HistoryPresentation.swift and Tests/DittoCoreTests/HistoryPresentationTests.swift; register in Tests/DittoCoreTests/main.swift.
 
-- [ ] Write failing checks for HistoryPresentation.frame(caret:screen:), rowTitle(_:), preview(_:), and selection movement at list boundaries. Test screen edges and nonzero origins, empty/whitespace leading lines, emoji and 5,000-character truncation. Verify failure before implementation.
-- [ ] Implement these bounded helpers; run swift run DittoTests and verify the full suite.
+- [x] Write failing checks for HistoryPresentation.frame(caret:screen:), rowTitle(_:), preview(_:), and selection movement at list boundaries. Test screen edges and nonzero origins, empty/whitespace leading lines, emoji and 5,000-character truncation. Verify failure before implementation.
+- [x] Implement these bounded helpers; run swift run DittoTests and verify the full suite.
 
 ### 2. Native search UI
 
 Files: add Sources/DittoUI/HistoryPanel.swift; replace old expanded UI in Sources/Ditto/Overlay.swift; wire destination labels and history-only boundary selection in Sources/Ditto/AppController.swift.
 
-- [ ] Implement the native header, material, 34 pt accessible table rows, source icons, independently selectable preview, source/time/size metadata and explicit empty states.
-- [ ] Implement native Actions/Command-K, Copy, Pin and Delete using existing callbacks. Keep all destructive actions explicit and preserve text-field Copy behavior.
-- [ ] Apply helper placement, stable panel dimensions, and reduced-transparency material fallback. Build the executable to verify AppKit interfaces.
+- [x] Implement the native header, material, 34 pt accessible table rows, source icons, independently selectable preview, source/time/size metadata and explicit empty states.
+- [x] Implement native Actions/Command-K, Copy, Pin and Delete using existing callbacks. Keep all destructive actions explicit and preserve text-field Copy behavior.
+- [x] Apply helper placement, stable panel dimensions, and reduced-transparency material fallback. Build the executable to verify AppKit interfaces.
 
 ### 3. Verify and deliver
 
 Files: existing native verification infrastructure, docs/verification.md and product.md as needed.
 
-- [ ] Render controlled fixtures in the actual native panel in dark/light and long/empty/no-result states; inspect screenshots.
-- [ ] Check query focus, selection, Actions, Escape and original host-query preservation with real native events where permissions permit. Do not count Secure Input or focus-interrupted checks as passes.
-- [ ] Run full automated checks, signed release build and strict signature verification. Commit/push each completed increment, open/link the UI PR, launch normal app, and report actual verification separately from remaining limitations.
+- [x] Render controlled fixtures in the actual native panel in dark/light and long/empty/no-result states; inspect screenshots.
+- [x] Check query focus, selection, Actions, Escape and original host-query preservation with real native events where permissions permit. Do not count Secure Input or focus-interrupted checks as passes.
+- [x] Run core and native UI checks, signed release build and strict signature verification.
+- [ ] Commit/push the final polish, open/link the UI PR, launch normal app, and report actual verification separately from remaining limitations.
 
 ## Rulings
 
@@ -58,3 +59,6 @@ Files: existing native verification infrastructure, docs/verification.md and pro
 
 - Ruling: use a small DittoUI target with OverlayModel/HistoryPanelView and a NativeUI test executable. This lets tests exercise the actual AppKit controls without adding a test-only fixture mode to the product or touching the user's clipboard/history. The signed-app E2E remains a separate verification layer.
 - Ruling: defer hidden-view refreshes until history is shown, and ignore hidden-table selection notifications, so the expanded view cannot interfere with active inline autocomplete. Native UI regressions cover both boundaries.
+
+- Verification: focused TextEdit history flow passed 15 results including runner; live controlled panel passed 11 including runner. The broad multi-copy TextEdit runner remains incomplete after a synthetic Cmd-A selection failure; do not count it as a pass. See docs/verification.md.
+- Ruling: signed-app live captures use only generated workspace/clipboard fixtures. Per-window high-contrast appearance is not a global accessibility-setting test.

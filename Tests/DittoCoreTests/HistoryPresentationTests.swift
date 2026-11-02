@@ -18,7 +18,8 @@ func testHistoryPlacementStaysOnTheTargetDisplay() {
 }
 
 func testHistoryPresentationKeepsUnicodeAndBoundsPreview() {
-    expectEqual(HistoryPresentation.rowTitle("\n  \n\t hello   👩🏽‍💻\tworld\nsecond"), "hello 👩🏽‍💻 world")
+    expectEqual(HistoryPresentation.rowTitle("\n  \n\t hello   👩🏽‍💻\tworld\nsecond"), "hello 👩🏽‍💻 world second")
+    expectEqual(HistoryPresentation.rowTitle("{\n  \"name\": \"ditto\"\n}"), "{ \"name\": \"ditto\" }")
     expectEqual(HistoryPresentation.rowTitle(" \t\n"), "Whitespace")
     let long = String(repeating: "👩🏽‍💻", count: 5_010)
     expectEqual(HistoryPresentation.preview(long).count, 5_000)
