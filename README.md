@@ -44,7 +44,7 @@ Without permission, reliable geometry, or a uniform sample, suggestions appear b
 - Default-on text capture; pause, app exclusions, retention and launch-at-login settings.
 - Setup/permission states and a built-in practice editor.
 
-Images/files, customizable shortcuts and distribution are deferred. Actual global-shortcut tests pass in TextEdit for both automatic and forced event-query tracking. Actual T3 completion, placeholder masking, Escape and undo have passed. Slack masking and acceptance have passed, with its final undo check unresolved. Ghostty, WhatsApp, and the current browser builds remain **unverified**; neither a build nor TextEdit proves those apps work. Pure Unicode insertion can have different undo grouping from paste.
+Images/files, customizable shortcuts and distribution are deferred. Actual global-shortcut tests pass in TextEdit for both automatic and forced event-query tracking. Actual T3 completion, placeholder masking, Escape and undo have passed. Slack masking and acceptance have passed; its native Undo clears both the typed query and accepted paste. Ghostty, WhatsApp, and the current browser builds remain **unverified**; neither a build nor TextEdit proves those apps work. Pure Unicode insertion can have different undo grouping from paste.
 
 ## Verify
 

@@ -76,3 +76,11 @@ The capture also exposed the automation pointer's shadow crossing the sampled bo
 Actual Slack passed invocation, visible masking, Escape, query typing, Tab completion, and clipboard preservation. Its subsequent acceptance-undo assertion failed. The later UI observation showed a different Slack view, so the final run needs an uninterrupted idle window and records both undo state and focused-element identity before classifying that failure. It is not counted as a full-suite pass. The inset empty-paragraph layout supplies initial Slack cursor geometry. A fallback without space below a field now moves above it.
 
 The latest 28 automated tests pass, and the signed app builds. The final TextEdit regression, full Slack undo/cleanup check, and a current T3 confirmation remain pending the requested idle window. Ghostty's earlier tool denial is still respected; WhatsApp and current browser versions remain unverified. No messages were sent by the composer tests.
+
+## Final pre-merge checks — 2026-11-02
+
+The current signed build passed the full live mask run (27 passing assertions including runner) and TextEdit automatic completion (17 passing assertions including runner). The forced-event TextEdit rerun stopped safely when the foreground switched to Chrome; its earlier full pass remains historical, not a current pass.
+
+The uninterrupted Slack run established native undo grouping: after successful completion, Undo produced an empty readable field while the same AX element remained focused. It clears the query and paste together. This is now an explicit per-app behavior in the PRD and runner rather than a promise of identical undo grouping across editors. The updated Slack expectation/cleanup sequence has not yet completed another live run. T3’s full visible-mask, completion, undo, and cleanup pass is recorded above.
+
+The user explicitly requested merging PR #1. Merge is a source-control action and does not satisfy the remaining product handoff gate. Ghostty testing is tool-blocked; WhatsApp and current browser builds remain unverified. No claim of universal completion or a fully finished product is made.

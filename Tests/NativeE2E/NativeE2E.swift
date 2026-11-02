@@ -311,7 +311,10 @@ public final class NativeE2E {
                             self.after(0.3) {
                                 let undo = self.read(element)
                                 self.results.append(["scenario": "host undo state", "queryRestored": String(undo?.trimmingCharacters(in: .newlines) == "ditto-e2e-"), "empty": String(undo.map(InputPolicy.isVisuallyBlank) == true), "readable": String(undo != nil), "sameFocusedElement": String(self.focused().map { CFEqual($0, element) } == true)])
-                                self.record("actual composer acceptance undo", passed: self.read(element)?.trimmingCharacters(in: .newlines) == "ditto-e2e-")
+                                let restored = self.appID == "com.tinyspeck.slackmacgap"
+                                    ? undo.map(InputPolicy.isVisuallyBlank) == true
+                                    : undo?.trimmingCharacters(in: .newlines) == "ditto-e2e-"
+                                self.record("actual composer native undo", passed: restored && self.focused().map { CFEqual($0, element) } == true)
                                 guard !self.finished, self.key(53), self.key(0, flags: .maskCommand), self.key(51) else { return }
                                 self.after(0.3) {
                                     self.record("test draft cleaned without sending", passed: self.read(element).map(InputPolicy.isVisuallyBlank) == true)
