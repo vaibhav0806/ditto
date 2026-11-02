@@ -74,7 +74,7 @@ These are implementation choices from the UX proposal, rather than separately co
 
 ## Acceptance criteria
 
-- `swift test` passes matching, Unicode-range, stale-session, history persistence, deduplication, retention, and pin/delete behavior checks.
+- `swift run DittoTests` passes matching, Unicode-range, stale-session, history persistence, deduplication, retention, and pin/delete behavior checks.
 - A release build produces a launchable Ditto.app without an Xcode project or third-party runtime dependency.
 - Copy → invoke → type → cycle → accept works in supported apps, without modifying text preceding the session.
 - Dismissal leaves typed content intact. App/focus changes never paste into the wrong destination.
