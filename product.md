@@ -136,3 +136,9 @@ Long excerpts must stay on one line with tail truncation inside the fixed 34 pt 
 ## Populated-field autocomplete correction (2026-11-03)
 
 An empty Ditto query is independent of an empty host field. When the acknowledged host already contains text, invocation should show the completion as a continuation at its caret, using the host font and actual caret line height. Do not add a keyboard-help footer beneath the ghost or shift a long suggestion left over existing text; truncate it at the visible field/display edge. Preserve the existing empty-field placeholder protections. Mid-line presentation with visible text after the caret still requires a separate verified treatment; no new floating-chip flow is adopted by this correction.
+
+## Exact typography requirement and reopened validation
+
+The user still observes floating text in TextEdit on both new and filled lines. The previous geometry passes do not resolve that report. The requirement is a ghost continuation matching the host's font, size, weight, baseline, glyph advances, line pitch and available width, with only its color changed until acceptance. Do not patch this with per-application pixel offsets.
+
+The [focused typography research](docs/research/2026-11-03-ghost-text-typography.md) recommends an explicit glyph renderer with reported/measured field typography and independent host-rendered pixel comparisons. This is a proposed rendering direction; it is not implemented or verified yet. The TextEdit floating issue remains open.

@@ -1,5 +1,9 @@
 # Native prototype verification
 
+## Reopened typography issue — 2026-11-03
+
+The user reports that the current build still floats above actual TextEdit text, on both empty/new and filled lines. The earlier zero offsets below describe the measured fixture metadata, not proof of identical TextEdit glyph rendering. The TextEdit check compared caret/label rectangle centers, while the native glyph-baseline fixture used a single monospaced font and a view baseline property. These passes do not close the reported visual defect. Rendering validation is reopened; see the [focused source research and proposed independent pixel test](research/2026-11-03-ghost-text-typography.md). No new production rendering patch was made during that research.
+
 ## Populated-field autocomplete positioning — 2026-11-03
 
 A live TextEdit regression reproduced the user's populated-field bug: invoking with `External ` already present rendered the suggestion 20 pt below the caret line. The empty Ditto query had incorrectly taken the empty-host placeholder fallback. An acknowledged nonblank host value now permits immediate inline completion without masking. A second native screenshot and glyph-baseline assertion reproduced the floating text: the label added 4.84375 pt above the host baseline because its height exceeded the caret line height. The label now uses the actual caret height, and the helper footer beneath it is removed. Long suggestions truncate at the field/display edge while keeping their origin at the caret, rather than shifting left over existing text. Empty or unreadable host values retain conservative placeholder protection.
