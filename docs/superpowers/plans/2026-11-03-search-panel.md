@@ -50,7 +50,7 @@ Files: existing native verification infrastructure, docs/verification.md and pro
 - [x] Render controlled fixtures in the actual native panel in dark/light and long/empty/no-result states; inspect screenshots.
 - [x] Check query focus, selection, Actions, Escape and original host-query preservation with real native events where permissions permit. Do not count Secure Input or focus-interrupted checks as passes.
 - [x] Run core and native UI checks, signed release build and strict signature verification.
-- [ ] Commit/push the final polish, open/link the UI PR, launch normal app, and report actual verification separately from remaining limitations.
+- [x] Commit/push the final polish, open/link draft PR #2, launch the signed app normally, and record actual verification separately from remaining limitations. Real system Increase Contrast/Reduce Transparency checks await user confirmation; the PR remains draft.
 
 ## Rulings
 
