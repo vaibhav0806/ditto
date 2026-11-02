@@ -9,8 +9,10 @@ let package = Package(
         .systemLibrary(name: "CSQLite"),
         .target(name: "DittoCore", dependencies: ["CSQLite"]),
         .target(name: "DittoCapture", dependencies: ["DittoCore"]),
-        .target(name: "DittoE2E", dependencies: ["DittoCore", "DittoCapture"], path: "Tests/NativeE2E"),
-        .executableTarget(name: "Ditto", dependencies: ["DittoCore", "DittoCapture", "DittoE2E"]),
+        .target(name: "DittoUI", dependencies: ["DittoCore"]),
+        .target(name: "DittoE2E", dependencies: ["DittoCore", "DittoCapture", "DittoUI"], path: "Tests/NativeE2E"),
+        .executableTarget(name: "Ditto", dependencies: ["DittoCore", "DittoCapture", "DittoE2E", "DittoUI"]),
+        .executableTarget(name: "DittoUITests", dependencies: ["DittoCore", "DittoUI"], path: "Tests/NativeUI"),
         .executableTarget(name: "DittoTests", dependencies: ["DittoCore", "DittoCapture"], path: "Tests/DittoCoreTests")
     ]
 )

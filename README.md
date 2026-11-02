@@ -37,7 +37,7 @@ Without permission, reliable geometry, or a uniform sample, suggestions appear b
 
 ## What works in the code
 
-- Native menu bar app, transparent caret suggestion, explicit history search and full text preview.
+- Native menu bar app, transparent caret suggestion, and a 680 × 440 history panel with source-app icons, native table selection, independent text preview and Actions (⌘K).
 - Local SQLite persistence, duplicate promotion, seven-day retention by default, pin/delete/clear.
 - Prefix-before-substring matching with recency tie breaking.
 - Guarded AX range selection followed by ordinary paste; event-tracked suffix completion when selection writing is unavailable. Native paste is preferred when readable cursor state permits acknowledgement. Otherwise tagged Unicode events append a single-line suffix. No blind backspacing.
@@ -50,6 +50,8 @@ Images/files, customizable shortcuts and distribution are deferred. Actual globa
 
 ```sh
 swift run DittoTests
+swift run DittoUITests --output-directory .build/history-ui
+swift run DittoUITests --glyph-only --output-directory .build/history-ui
 swift build -c release --product Ditto
 ./scripts/build-app.sh
 build/Ditto.app/Contents/MacOS/Ditto --smoke-test
@@ -57,14 +59,24 @@ build/Ditto.app/Contents/MacOS/Ditto --smoke-test
 
 `DittoTests` is a dependency-free test executable. The installed Command Line Tools did not contain XCTest or Swift Testing, so `swift test` is not the test command. The tests use temporary databases and fixtures, never your clipboard. Smoke mode uses a temporary database and does not register the hotkey, start capture, request permissions, or modify your normal preferences; it opens setup and exits automatically.
 
+The native UI checks compare native and ghost glyph pixels, then open a controlled sample history panel and exercise its actual AppKit controls. `--glyph-only` runs without showing a panel. They do not write the clipboard or test insertion into another app. Cached-view PNGs do not reproduce live desktop blur.
+
 The opt-in native runner uses real system-wide keys and the real clipboard in a disposable TextEdit document. Leave keyboard/focus alone while it runs:
 
 ```sh
 ./scripts/run-native-e2e.sh textedit
 ./scripts/run-native-e2e.sh textedit-events
+./scripts/run-native-e2e.sh history-textedit
+./scripts/run-native-e2e.sh prefilled
+./scripts/run-native-e2e.sh typography
+./scripts/run-native-e2e.sh t3-typography
 ```
 
-The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state.
+`prefilled` uses generated native text fields to check baseline, line-end position, Escape and insertion with an existing draft. The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state. `history-textedit` focuses on the redesigned panel: filter without editing the host, no-result Return, Escape back to the original query, real history paste, and undo.
+
+`typography` captures generated suggestions in actual TextEdit, accepts them, and compares their letter positions and dimensions with the host-rendered result. After the `mask` fixture seeds the clipboard, `t3-typography` does the same for an already empty, focused T3 message composer and cleans up without sending. It requires Screen Recording. Production baseline calibration samples only a narrow focused-field text strip locally in memory; it never saves those samples or uploads them. Fields that do not expose font information may still require inferred typography; compatibility is not inferred from a successful build.
+
+With Screen Recording enabled, `./scripts/run-native-e2e.sh history-ui` captures the real panel over generated sample content in dark/light/high-contrast appearances and checks OS keyboard navigation, filtering and Actions. It never reads clipboard history or pastes into another app. High contrast is a per-window appearance override, not a change to the system setting. Its acceptance assertion checks callback dispatch; external insertion is covered separately by `history-textedit`.
 
 With Screen Recording enabled, `./scripts/run-native-e2e.sh mask` checks live dark/white/gray placeholder masking and textured-background rejection. The `t3` and `slack` modes require an already-focused empty message composer and the generated clipboard token from the mask run. They refuse other clipboard content, stop on app/field focus changes, and never press Return or send a message. Slack tests should use a self conversation. Test reports and cropped fixtures stay in ignored `.build/`. Restart the app normally after developer tests; test flags belong only to verification sessions.
 

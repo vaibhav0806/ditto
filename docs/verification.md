@@ -1,5 +1,79 @@
 # Native prototype verification
 
+## Empty-field placement follow-up — 2026-11-03
+
+The original T3 size-consistency check allowed a rejected mask and separate below-line preview, so its pass did not establish inline empty-field placement. The new `t3-typography` regression compares the first input line's actual ghost pixels against the same accepted text and cleans the generated draft without sending. It failed before the correction with a 545-pixel width mismatch because the original placeholder was still visible and the ghost was below it. Merely preferring the 17 pt placeholder text box over the 23 pt paragraph group did not fix capture rejection.
+
+The actual compositor sample contained a localized tinted patch crossing its border, with otherwise uniform background. The exact source of that patch was not identified. Sampling only the focused application's windows, with Ditto overlays excluded, removed the rejection without changing the strict color/texture rules. The mask then appeared and the ghost stayed on the line, but the actual accepted-text comparison still failed at +0.70 device pixel vertically. Comparing the known placeholder's pixels with the provisional typography before masking now supplies a confidence-checked baseline; no T3-specific pixel offset is stored.
+
+Fresh results for this correction:
+
+| Check | Observed result |
+| --- | --- |
+| Core tests | 30 passed, zero failures |
+| Native glyph/calibration checks | 40 passed, zero failures; the new provisional-font positive checks failed before the change, and mismatched-font/blank-image rejection still passes at 1x/2x |
+| Actual empty T3 pixel comparison | 4 passing results including runner; mask visible; x displacement +0.079 pixel, y displacement -0.299 pixel, width difference 0, ink-height difference 1 pixel |
+| Full actual T3 completion sequence | 14 passing results including runner; visible mask, unchanged empty draft, Escape, same 14 pt font before/after typing, mask removal on typing, Tab, clipboard preservation, native undo and cleanup |
+| Actual TextEdit pixel comparison | 14 passing results including runner; empty, filled and new-line letter width/height differences 0; absolute centroid displacement below 0.025 device pixel |
+| Live mask regressions | 27 passing results including runner; dark/white/gray pixel checks, Escape, typing, acceptance/undo and texture rejection |
+
+Controlled ghost/accepted PNG pairs were visually inspected. The font remains correctly marked inferred where AX does not expose it; the glyph match verifies this generated reference, not every font/script or host. The sample image exists only during the capture callback; the active session retains the background and numeric baseline. Capture still rejects ambiguous backgrounds, and that fallback is not a universal empty-field typography signoff. No shell integration, host-document sentinel or per-application position table was added. The earlier broad TextEdit multi-copy driver failure and the other compatibility gaps below remain separate.
+
+The [OSS follow-up](research/2026-11-03-ghost-text-typography.md#empty-field-follow-up) distinguishes reusable baseline/capture ideas from paths that explicitly require an existing line prefix.
+
+## Core Text renderer and actual glyph validation — 2026-11-03
+
+The renderer now draws Core Text glyphs at an explicit typesetter baseline rather than centering an NSTextField. It preserves reported font/paragraph/spacing attributes, retains fractional placement after window rounding, and can refine the baseline through a bounded local comparison with nearby host text. No application-specific position offsets are used; no upstream implementation was copied. Production measurements remain in memory and reject stale focus, Secure Input, unknown fonts, nonuniform backgrounds and weak matches.
+
+The stronger live test exposed a separate geometry defect: TextEdit's collapsed AX range was exactly one line above its actual character bounds, even when it had a plausible height. Adjacent grapheme bounds now supply the line geometry. A newline may legitimately span the rest of its line, so only actual newline bounds permit that width. The fully empty field's out-of-field collapsed rect is bounded to its visible text area. The mask strip clips padding at the field edge, and sampling excludes the caret columns while keeping the existing background ambiguity checks.
+
+| Check | Observed result | Limits |
+| --- | --- | --- |
+| `swift run DittoTests` | 30 passed, zero failures | Includes field-edge mask bounds and caret-contaminated sample rejection/exclusion |
+| Native glyph checks (`--glyph-only`) | 36 passed, zero failures | 32 native-versus-ghost comparisons at 1x/2x across fonts, weight, italic, tracking, ligatures, empty/new lines and paragraph metrics; four pixel-calibration checks |
+| Full native UI run earlier in this implementation | 67 passed, zero failures | The same 36 glyph checks plus the existing 31 search controls checks |
+| Signed live `typography` | 14 passing results including runner | Actual TextEdit filled line, new paragraph and empty field; compares ghost pixels with accepted host text, not view metadata |
+| Signed live `t3` | 14 passing results including runner | Empty/filled font consistency, unchanged draft on invoke, Escape, typing, Tab, clipboard preservation, native undo and generated-draft cleanup |
+| Signed live `mask` | 27 passing results including runner | Dark/white/gray mask pixels, empty acceptance/undo, typing, Escape and conservative texture fallback |
+| Signed live `history-textedit` | 16 passing results including runner | Real global invocation, acceptance/undo, history filtering, empty-result Return, Escape restoring query and history paste/undo |
+| Signed live `prefilled` | 25 passing results including runner | Four native layouts, host baseline/field bounds, unchanged draft, Escape and acceptance |
+
+In the final TextEdit pixel run, all three cases had zero width/height difference and absolute letter centroid displacement below 0.02 device pixels. The generated ghost and accepted PNG pairs were also visually inspected. The test moves the accepted-text caret to line start to avoid measuring the insertion bar as part of the final letter. A separate earlier crop based on the invalid collapsed range and a contaminated end-caret capture failed and are not counted as evidence. The old broad runner's geometry assertion was corrected to compare against actual preceding glyph bounds; its collapsed-range center was the very defect under test.
+
+T3 used `.AppleSystemUIFont` 14 pt both before and after query typing, with `reported=false` in both cases. Its consistency issue passes, but the actual host font face is not independently established by that assertion. The mask was rejected during this run, and the existing separate preview protected the placeholder; this is not an exact inline T3 typography signoff. The original unsent draft was preserved and restored after the generated test. No messages were sent. Reports/PNGs stay under ignored `.build/`.
+
+The broader TextEdit driver still stops at its historical multi-copy setup: synthetic Cmd-A leaves selection `{24, 0}` after the first generated copy fixture. Capture, global invocation, actual completion, one-step undo, clipboard preservation and immediate Tab pass before that stop. It is not counted as a full-suite pass. Mid-line visible suffixes, wrapping/RTL, opaque hosts, Ghostty, WhatsApp, current browsers and VoiceOver speech remain outside this typography signoff.
+
+## Reopened typography issue — 2026-11-03
+
+The user reports that the current build still floats above actual TextEdit text, on both empty/new and filled lines. The earlier zero offsets below describe the measured fixture metadata, not proof of identical TextEdit glyph rendering. The TextEdit check compared caret/label rectangle centers, while the native glyph-baseline fixture used a single monospaced font and a view baseline property. These passes do not close the reported visual defect. Rendering validation is reopened; see the [focused source research and proposed independent pixel test](research/2026-11-03-ghost-text-typography.md). No new production rendering patch was made during that research.
+
+## Populated-field autocomplete positioning — 2026-11-03
+
+A live TextEdit regression reproduced the user's populated-field bug: invoking with `External ` already present rendered the suggestion 20 pt below the caret line. The empty Ditto query had incorrectly taken the empty-host placeholder fallback. An acknowledged nonblank host value now permits immediate inline completion without masking. A second native screenshot and glyph-baseline assertion reproduced the floating text: the label added 4.84375 pt above the host baseline because its height exceeded the caret line height. The label now uses the actual caret height, and the helper footer beneath it is removed. Long suggestions truncate at the field/display edge while keeping their origin at the caret, rather than shifting left over existing text. Empty or unreadable host values retain conservative placeholder protection.
+
+Native populated-field fixtures cover a single-line draft, a later line in a multiline draft, a line with following document lines, and a caret near the field's right edge. They check glyph-baseline equality, caret x, field containment, unchanged draft before acceptance, no placeholder mask, Escape, and actual insertion preserving the existing prefix/suffix. This does not establish exact font matching in every third-party app or resolve presentation in the middle of visible text on the same line. Final signed-build runs: `prefilled` passed 25 results including the runner, with 0.0 pt glyph-baseline and line-center offsets in all four fixtures; `history-textedit` passed 16 including real capture, global invocation, populated-field geometry, completion, history Escape/paste and undo; `mask` passed all 27 results. The current 30 core tests and strict signature verification pass. These supersede the earlier focus-interrupted run for these focused scenarios; the older broad multi-copy driver failure remains separately documented.
+
+## Search-panel refresh — 2026-11-03
+
+The expanded history panel now uses native AppKit controls and the reviewed 680 × 440 pt layout. Matching, capture, inline masking, and insertion routes retain their existing contracts. The following results belong to this UI revision; older entries below remain historical.
+
+| Check | Observed result | Scope |
+| --- | --- | --- |
+| `swift run DittoTests` | 30 passed, zero failures | Core behavior, placement, Unicode-safe bounded presentation, history selection bounds |
+| `swift run DittoUITests --output-directory .build/history-ui` | 31 passed, zero failures | Actual AppKit controls: focus, search, selection, Actions, preview, no-result Return, hidden-view isolation; controlled cached-view screenshots |
+| `./scripts/run-native-e2e.sh history-ui` | 11 passing results including runner | Real OS keys in the signed app; live compositor captures over generated workspace content in dark, light, and per-window high-contrast appearances |
+| `./scripts/run-native-e2e.sh history-textedit` | 15 passing results including runner | Real copy/capture/global invocation, inline acceptance/undo, history filtering, empty-result Return, Escape restoring original host query, real history paste and one-step undo in TextEdit |
+| `./scripts/build-app.sh`, strict codesign verification | Passed | Signed local release bundle; no distribution/notarization claim |
+
+The live history UI fixture uses sample data and acceptance callbacks, not the user's history or external paste. The separate TextEdit run reads back actual destination text after system-key acceptance. Cached-view screenshots establish control rendering, not desktop blur. Live PNGs and JSON stay in ignored `.build/`. Initial high-contrast screenshots used an `accessibilityHighContrastDarkAqua` appearance override. The subsequent real system-setting checks below supersede that appearance-only coverage. VoiceOver speech remains untested.
+
+PixelDesign reviewed the concept and native captures by email. The implementation addresses the native review's three must-fixes: readable flattened multiline excerpts (display only), primary footer hierarchy, and clean no-results with no-op Return. Whitespace markers are off, source icons resolve from bundle IDs, preview wrapping uses hanging indents, and the selectable original text remains unchanged. A subsequent live review caught wrapping in the list excerpt. Rows now enforce a single line with explicit attributed tail truncation; the preview uses fixed 16 pt code lines, and the pin/time columns have fixed slots. Regression checks failed before these changes and pass afterward. PixelDesign subsequently cleared the revised layout visually, and after reviewing the real system-setting captures explicitly cleared the accessibility appearance blocker too. Spoken VoiceOver verification remains open and is not counted as complete. The preview now removes NSTextView's extra line-fragment padding to align its text with the metadata at the same 16 pt inset. Native NSBox separators and the 12 pt clipping mask remain in use; backdrop marks in rectangular screenshot corners are outside the rounded panel.
+
+With explicit user authorization, both real display settings were exercised through System Settings. Original values were Increase Contrast off and Reduce Transparency off. Turning on Increase Contrast automatically enabled and locked Reduce Transparency; AppKit reported both flags true. The signed live panel run passed all 11 results, with visibly stronger separators, brighter secondary text, and opaque backgrounds. Turning contrast off restored both flags off. Reduce Transparency was then enabled alone; AppKit reported false/true and another 11-result live run passed. Dark and light captures show solid appearance-appropriate backgrounds. Finally both preferences were restored off and confirmed in System Settings and through NSWorkspace. No global settings remain changed. Controlled reports/captures are under ignored `.build/history-accessibility/`; no user clipboard/document content is included. These visual/keyboard checks do not establish VoiceOver speech behavior.
+
+The broader `textedit` regression run did **not** finish: after successful capture, invocation, acceptance, undo and immediate Tab, its later synthetic Cmd-A left an empty selection in the acknowledged fixture. The runner stops on that assertion. This is not counted as a full pass or a verified application regression; the cause of that driver/host selection failure remains unresolved. The focused history runner passes independently without that multi-copy preparation sequence. Ghostty, WhatsApp and browser compatibility are not established by this UI revision.
+
 Latest iteration: 2026-11-02. This is an experimental build, not a completed any-app handoff.
 
 ## Automated checks

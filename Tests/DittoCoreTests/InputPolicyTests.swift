@@ -6,6 +6,8 @@ func testEmptyComposerPresentationGuards() {
     expectFalse(InputPolicy.allowsInlineCompletion(query: "", hasMask: false))
     expectTrue(InputPolicy.allowsInlineCompletion(query: "", hasMask: true))
     expectTrue(InputPolicy.allowsInlineCompletion(query: "di", hasMask: false))
+    expectTrue(InputPolicy.allowsInlineCompletion(query: "", hasMask: false, hasExistingText: true))
+    expectFalse(InputPolicy.allowsInlineCompletion(query: "", hasMask: false, hasExistingText: false))
 }
 
 func testSessionKeyPolicy() {

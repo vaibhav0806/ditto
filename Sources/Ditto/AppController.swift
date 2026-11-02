@@ -1,4 +1,6 @@
 import AppKit
+import CoreText
+import DittoUI
 import SwiftUI
 import Carbon
 import Combine
@@ -16,10 +18,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let shortcut = GlobalShortcut()
     private let keyboard = KeyboardMonitor()
     private let overlay = OverlayController()
+    private let textCalibration = CompletionCalibration()
     private var capture: ClipboardCapture!
     private var target: TextTarget?
     private var session: CompletionSession?
     private var expectedQuery = CompletionSession()
+    private var placeholderBaseline: CGFloat?
     private var placeholderBackground: PlaceholderBackground?
     private var maskRequestID: UUID?
     private var maskAttempted = false
@@ -260,6 +264,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .typeNormally:
             overlay.hideForTyping()
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
             if let session {
@@ -334,7 +339,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func move(_ delta: Int) {
         let count = overlay.model.entries.count
         guard count > 0 else { return }
-        overlay.model.selectedIndex = (overlay.model.selectedIndex + delta + count) % count
+        overlay.model.selectedIndex = browsing ? HistoryPresentation.selectionIndex(current: overlay.model.selectedIndex, delta: delta, count: count) : (overlay.model.selectedIndex + delta + count) % count
         if !browsing { renderCompletion() }
     }
 
@@ -349,6 +354,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pollTimer?.invalidate()
         pollTimer = nil
         overlay.model.canInsert = session != nil && session?.isKeystrokeTracked == false
+        overlay.model.canReturnToCompletion = session != nil
+        let destination = target.flatMap { NSRunningApplication(processIdentifier: $0.pid) }
+        overlay.model.destinationName = destination?.localizedName ?? ""
+        overlay.model.destinationBundleID = destination?.bundleIdentifier ?? ""
         if session?.isKeystrokeTracked == true {
             overlay.model.message = "Select an item to copy. Escape returns to autocomplete."
         } else if session != nil {
@@ -471,28 +480,39 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func renderCompletion() {
         guard let target, let session, !browsing else { return }
         let caret = target.caret
-        let font = target.font
+        let style = target.textStyle
+        let baseline = caret.flatMap { textCalibration.offset(target: target, style: style, caret: $0) }
         guard overlay.model.selected != nil else {
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
-            overlay.showCompletion(caret: caret, font: font, inline: false)
+            overlay.showCompletion(caret: caret, style: style, inline: false)
             return
         }
-        if !session.query.isEmpty {
+        let hasExistingText = target.snapshot().map { !InputPolicy.isVisuallyBlank($0.text) } ?? false
+        if !session.query.isEmpty || hasExistingText {
             placeholderBackground = nil
+            placeholderBaseline = nil
             maskRequestID = nil
             maskAttempted = false
-            overlay.showCompletion(caret: caret, font: font)
+            overlay.showCompletion(caret: caret, style: style, hasExistingText: hasExistingText, field: target.fieldBounds, baselineOffset: baseline)
+            if let caret, baseline == nil {
+                let token = generation
+                textCalibration.measure(target: target, style: style, caret: caret, excluded: overlay.excludedWindowIDs, isCurrent: { [weak self] in self?.generation == token && self?.browsing == false && target.isFocused() }, completion: { [weak self] in
+                    guard self?.generation == token else { return }
+                    self?.renderCompletion()
+                })
+            }
             return
         }
         if let background = placeholderBackground {
             guard target.placeholderRegion == background.region else { cancel(); return }
-            overlay.showCompletion(caret: caret, font: font, background: background)
+            overlay.showCompletion(caret: caret, style: style, background: background, field: target.fieldBounds, baselineOffset: placeholderBaseline)
             return
         }
         guard !maskAttempted, let region = target.placeholderRegion else {
-            if maskRequestID == nil { overlay.showCompletion(caret: caret, font: font, inline: false) }
+            if maskRequestID == nil { overlay.showCompletion(caret: caret, style: style, inline: false, field: target.fieldBounds) }
             return
         }
         maskAttempted = true
@@ -500,16 +520,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let token = generation
         maskRequestID = requestID
         overlay.hideForTyping()
-        PlaceholderBackgroundSampler.capture(region: region, excludingWindows: overlay.excludedWindowIDs, isCurrent: { [weak self] in
+        PlaceholderBackgroundSampler.capture(region: region, caret: caret, pid: target.pid, excludingWindows: overlay.excludedWindowIDs, isCurrent: { [weak self] in
             guard let self else { return false }
             return self.generation == token && self.maskRequestID == requestID && self.session?.query.isEmpty == true
                 && target.isFocused() && target.placeholderRegion == region
-        }) { [weak self] background in
+        }) { [weak self] sample in
             guard let self, self.generation == token, self.maskRequestID == requestID,
                   self.session?.query.isEmpty == true, !self.browsing, target.isFocused() else { return }
             self.maskRequestID = nil
             guard target.placeholderRegion == region else { self.cancel(); return }
-            self.placeholderBackground = background
+            self.placeholderBaseline = nil
+            if let sample, let text = target.placeholderText, let caret = target.caret {
+                let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: style.attributes))
+                let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let relative = CGRect(x: caret.minX - region.minX + advance, y: caret.minY - region.minY, width: 0, height: caret.height)
+                self.placeholderBaseline = GhostTextMeasurement.baseline(image: sample.image, scale: sample.scale, text: text, style: style, caret: relative)?.offset
+            }
+            self.placeholderBackground = sample?.background
             self.renderCompletion()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -533,6 +560,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         browsing = false
         session = nil
         placeholderBackground = nil
+        placeholderBaseline = nil
         maskRequestID = nil
         maskAttempted = false
         expectedQuery = CompletionSession()

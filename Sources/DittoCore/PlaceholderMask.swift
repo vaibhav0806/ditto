@@ -17,14 +17,14 @@ public enum PlaceholderMask {
     public static func region(field: CGRect, caret: CGRect) -> CGRect? {
         guard [field.minX, field.minY, field.width, field.height, caret.minX, caret.minY, caret.width, caret.height].allSatisfy(\.isFinite),
               caret.height > 0, caret.height <= 64, caret.minX >= field.minX, caret.maxX <= field.maxX,
-              caret.minY - 4 >= field.minY, caret.maxY + 4 <= field.maxY else { return nil }
+              caret.minY >= field.minY, caret.maxY <= field.maxY else { return nil }
         let x = max(field.minX, caret.minX - 4)
         let width = field.maxX - 6 - x
         guard width >= 40, width <= 1800 else { return nil }
-        return CGRect(x: x, y: caret.minY - 4, width: width, height: caret.height + 8)
+        return CGRect(x: x, y: caret.minY - 4, width: width, height: caret.height + 8).intersection(field)
     }
 
-    public static func background(rgba: [UInt8], width: Int, height: Int) -> MaskColor? {
+    public static func background(rgba: [UInt8], width: Int, height: Int, excludingColumns: Range<Int>? = nil) -> MaskColor? {
         guard width >= 8, height >= 8, width <= 4096, height <= 512,
               rgba.count == width * height * 4 else { return nil }
         var counts: [MaskColor: Int] = [:]
@@ -32,7 +32,7 @@ public enum PlaceholderMask {
         var maximum = [0, 0, 0]
         var total = 0
         for y in 0..<height {
-            for x in 0..<width where y < 2 || y >= height - 2 || x >= width - 2 {
+            for x in 0..<width where (y < 2 || y >= height - 2 || x >= width - 2) && excludingColumns?.contains(x) != true {
                 let i = (y * width + x) * 4
                 guard rgba[i + 3] == 255 else { return nil }
                 for channel in 0..<3 {
