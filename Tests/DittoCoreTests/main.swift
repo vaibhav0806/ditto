@@ -32,5 +32,7 @@ test("retention, delete and clear", history.testRetentionPreservesPinnedAndDelet
 test("history bounds and capture rejection", history.testRejectsEmptyAndOversizeAndNullTextAndBoundsUnpinnedHistory)
 test("keyboard mode boundaries", testSessionKeyPolicy)
 test("clipboard confidentiality policy", testConfidentialClipboardPolicy)
+test("real pasteboard capture pipeline", testRealPasteboardCapture)
+test("capture defaults and invocation routing", testCaptureAccessAndInvocationDefaults)
 print("\(tests) tests, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

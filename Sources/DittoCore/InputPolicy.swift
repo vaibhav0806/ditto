@@ -4,7 +4,16 @@ public enum SessionKeyAction: Equatable {
     case typeNormally, accept, move(Int), history, dismiss, cancelAndPass
 }
 
+public enum InvocationPresentation { case completion, notice, history }
+
 public enum InputPolicy {
+    public static func permitsBackgroundRead(access: Int) -> Bool { access == 0 || access == 2 }
+    public static func captureEnabled(saved: Bool?) -> Bool { saved ?? true }
+    public static func invocation(explicitHistory: Bool, canComplete: Bool) -> InvocationPresentation {
+        if explicitHistory { return .history }
+        return canComplete ? .completion : .notice
+    }
+
     public static func key(code: Int, command: Bool = false, option: Bool = false, control: Bool = false, shift: Bool = false, hasCandidate: Bool) -> SessionKeyAction {
         if command && !option && !control && !shift && code == 37 { return .history }
         if command || option || control { return .cancelAndPass }

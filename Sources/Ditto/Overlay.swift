@@ -107,7 +107,7 @@ private struct OverlayView: View {
             if !model.message.isEmpty { Text(model.message).font(.caption).foregroundStyle(.secondary) }
             Divider()
             Text(model.history ? (model.canInsert ? "↑↓ select · Enter paste · Esc back" : "↑↓ select · Enter copy · Esc close") : "Tab paste · ↑↓ next · ⌘L history · Esc close").font(.caption).foregroundStyle(.secondary)
-        }.padding(18).frame(width: model.history ? 540 : 440, height: model.history ? 560 : 215)
+        }.padding(18).frame(width: 540, height: model.entries.isEmpty ? 215 : 560)
     }
 }
 
@@ -120,10 +120,19 @@ final class SuggestionPanel: NSPanel {
 final class OverlayController {
     let model = OverlayModel()
     private let panel: SuggestionPanel
+    private let ghost = SuggestionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     var onResign: (() -> Void)?
     private var observer: NSObjectProtocol?
 
     init() {
+        ghost.level = .floating
+        ghost.isFloatingPanel = true
+        ghost.hidesOnDeactivate = false
+        ghost.isOpaque = false
+        ghost.backgroundColor = .clear
+        ghost.hasShadow = false
+        ghost.ignoresMouseEvents = true
+        ghost.title = "Ditto completion"
         panel = SuggestionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.isFloatingPanel = true
@@ -143,7 +152,8 @@ final class OverlayController {
         model.history = history
         panel.acceptsInput = history
         panel.ignoresMouseEvents = !history
-        let size = NSSize(width: history ? 540 : 440, height: history ? 560 : 215)
+        ghost.orderOut(nil)
+        let size = NSSize(width: 540, height: model.entries.isEmpty ? 215 : 560)
         let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
         let point = caret.map { NSPoint(x: $0.minX, y: primaryTop - $0.maxY) }
         let screen = point.flatMap { p in NSScreen.screens.first { $0.frame.contains(p) } } ?? NSScreen.main ?? NSScreen.screens[0]
@@ -155,6 +165,69 @@ final class OverlayController {
         if history { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
     }
 
-    func hide() { panel.orderOut(nil) }
+    func showCompletion(caret: CGRect?, font: NSFont) {
+        panel.orderOut(nil)
+        guard let caret else { showNotice("Cursor position unavailable · ⌘L for history"); return }
+        guard let selected = model.selected else {
+            showNotice(model.query.isEmpty ? "No copied text yet · copy something to start" : "No clipboard matches · Esc to close", caret: caret)
+            return
+        }
+        let range = model.query.isEmpty ? selected.text.startIndex..<selected.text.startIndex : selected.text.range(of: model.query, options: [.caseInsensitive, .diacriticInsensitive])
+        let isPrefix = range?.lowerBound == selected.text.startIndex
+        let completion = isPrefix ? String(selected.text[(range?.upperBound ?? selected.text.startIndex)...]) : selected.text
+        let firstLine = completion.components(separatedBy: .newlines).first ?? ""
+        let value = firstLine + (completion.contains("\n") ? " …" : "")
+        let label = NSTextField(labelWithString: value.isEmpty ? "⇥" : value)
+        label.font = font
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.setAccessibilityLabel("Ditto completion")
+        label.sizeToFit()
+        let width = min(max(label.frame.width + 4, 24), 600)
+        let lineHeight = max(caret.height, font.ascender - font.descender + font.leading + 4)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: lineHeight + 16))
+        label.frame = NSRect(x: 0, y: 16, width: width, height: lineHeight)
+        let hint = NSTextField(labelWithString: "⇥ accept   ↑↓   \(model.selectedIndex + 1)/\(model.entries.count)   ⌘L history")
+        hint.font = .systemFont(ofSize: 9)
+        hint.textColor = .tertiaryLabelColor
+        hint.frame = NSRect(x: 1, y: 0, width: max(width, 240), height: 14)
+        content.addSubview(label)
+        content.addSubview(hint)
+        content.setFrameSize(NSSize(width: max(width, 240), height: lineHeight + 16))
+        ghost.contentView = content
+        placeGhost(size: content.frame.size, caret: caret, inline: isPrefix)
+    }
+
+    func showNotice(_ message: String, caret: CGRect? = nil) {
+        panel.orderOut(nil)
+        let label = NSTextField(labelWithString: message)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        label.sizeToFit()
+        let width = min(label.frame.width + 24, 440)
+        let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: 32))
+        effect.material = .popover
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 8
+        effect.layer?.masksToBounds = true
+        label.frame = NSRect(x: 12, y: 8, width: width - 24, height: 16)
+        effect.addSubview(label)
+        ghost.contentView = effect
+        placeGhost(size: effect.frame.size, caret: caret, inline: false)
+    }
+
+    private func placeGhost(size: NSSize, caret: CGRect?, inline: Bool) {
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let point = caret.map { NSPoint(x: $0.minX, y: top - $0.maxY) } ?? NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let bounds = screen.visibleFrame
+        let y = inline ? point.y - 16 : point.y - size.height - 5
+        let origin = NSPoint(x: min(max(point.x, bounds.minX + 4), bounds.maxX - size.width - 4), y: min(max(y, bounds.minY + 4), bounds.maxY - size.height - 4))
+        ghost.setFrame(NSRect(origin: origin, size: size), display: true)
+        ghost.orderFrontRegardless()
+    }
+
+    func hide() { panel.orderOut(nil); ghost.orderOut(nil) }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 }

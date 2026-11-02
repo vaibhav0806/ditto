@@ -8,7 +8,8 @@ let package = Package(
     targets: [
         .systemLibrary(name: "CSQLite"),
         .target(name: "DittoCore", dependencies: ["CSQLite"]),
-        .executableTarget(name: "Ditto", dependencies: ["DittoCore"]),
-        .executableTarget(name: "DittoTests", dependencies: ["DittoCore"], path: "Tests/DittoCoreTests")
+        .target(name: "DittoCapture", dependencies: ["DittoCore"]),
+        .executableTarget(name: "Ditto", dependencies: ["DittoCore", "DittoCapture"]),
+        .executableTarget(name: "DittoTests", dependencies: ["DittoCore", "DittoCapture"], path: "Tests/DittoCoreTests")
     ]
 )

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ServiceManagement
+import DittoCore
 
 final class Preferences: ObservableObject {
     @Published var captureEnabled: Bool { didSet { defaults.set(captureEnabled, forKey: "captureEnabled") } }
@@ -10,7 +11,7 @@ final class Preferences: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        captureEnabled = defaults.bool(forKey: "captureEnabled")
+        captureEnabled = InputPolicy.captureEnabled(saved: defaults.object(forKey: "captureEnabled") as? Bool)
         retentionDays = defaults.object(forKey: "retentionDays") as? Int ?? 7
         excludedApps = defaults.string(forKey: "excludedApps") ?? "com.1password.1password\ncom.agilebits.onepassword7\ncom.apple.keychainaccess"
     }

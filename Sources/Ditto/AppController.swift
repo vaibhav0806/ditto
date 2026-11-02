@@ -3,6 +3,7 @@ import SwiftUI
 import Carbon
 import Combine
 import DittoCore
+import DittoCapture
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
@@ -25,6 +26,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var practiceWindow: NSWindow?
     private var activationObserver: NSObjectProtocol?
     private var lockObserver: NSObjectProtocol?
+    private var localKeys: Any?
     private var subscriptions: Set<AnyCancellable> = []
     private let smoke = CommandLine.arguments.contains("--smoke-test")
     private var smokeDirectory: URL?
@@ -57,7 +59,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         installMenu()
         wireOverlay()
-        capture = ClipboardCapture(store: store, preferences: preferences)
+        capture = ClipboardCapture(store: store, enabled: { [preferences] in preferences.captureEnabled }, retentionDays: { [preferences] in preferences.retentionDays }, exclusions: { [preferences] in preferences.exclusions })
         capture.onChange = { [weak self] in self?.cancel() }
         capture.onStatus = { [weak self] in self?.setupModel.status = $0 }
         if !smoke { capture.start() }
@@ -69,6 +71,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { self.cancel() }
         }
         keyboard.onDisabled = { [weak self] in DispatchQueue.main.async { self?.cancel() } }
+        localKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == 9 && event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command, .option] {
+                self.invoke()
+                return nil
+            }
+            if self.target?.isNative == true, let cgEvent = event.cgEvent, self.handleKey(cgEvent) { return nil }
+            return event
+        }
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let self, self.session != nil else { return }
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -140,6 +151,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func menuHistory() { invoke(openList: true) }
+    private func enableCapture() {
+        preferences.captureEnabled = true
+        capture.enableByUser()
+    }
+
     @objc private func toggleCapture() {
         if preferences.captureEnabled { preferences.captureEnabled = false } else { showSetup() }
     }
@@ -151,25 +167,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !preferences.exclusions.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") else { return }
         do { try store.prune(retentionDays: preferences.retentionDays); candidates = try store.entries() }
         catch { setupModel.status = error.localizedDescription; showSetup(); return }
-        if AXIsProcessTrusted(), let target = TextTarget.focused(), let snapshot = target.snapshot(), target.supportsReplacement,
+        if let target = TextTarget.focused(), let snapshot = target.snapshot(), target.supportsReplacement,
            let session = CompletionSession(text: snapshot.text, selection: snapshot.selection) {
             self.target = target
             self.session = session
         }
-        if openList || session == nil {
+        switch InputPolicy.invocation(explicitHistory: openList, canComplete: session != nil) {
+        case .history:
             expandHistory()
             return
+        case .notice:
+            showBriefNotice(AXIsProcessTrusted() ? "Completion unavailable here · open history from Ditto’s menu" : "Enable Accessibility in Ditto → Setup for autocomplete")
+            return
+        case .completion: break
         }
-        guard keyboard.start() else {
+        guard target?.isNative == true || keyboard.start() else {
             cancel()
-            setupModel.status = "Session keyboard access is unavailable. Check Accessibility / Input Monitoring, then retry."
-            showSetup()
+            showBriefNotice("Allow session keyboard controls in Ditto → Setup")
             return
         }
         overlay.model.canInsert = true
         overlay.model.message = ""
         updateResults(query: "")
-        overlay.show(history: false, caret: target?.caret)
+        overlay.showCompletion(caret: target?.caret, font: target?.font ?? .systemFont(ofSize: 14))
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in self?.refreshSession() }
     }
 
@@ -214,7 +234,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         invalidSnapshots = 0
         let previousQuery = self.session?.query
         self.session = session
-        if session.query != previousQuery { updateResults(query: session.query) }
+        if session.query != previousQuery {
+            updateResults(query: session.query)
+            overlay.showCompletion(caret: target.caret, font: target.font)
+        }
         return true
     }
 
@@ -229,6 +252,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let count = overlay.model.entries.count
         guard count > 0 else { return }
         overlay.model.selectedIndex = (overlay.model.selectedIndex + delta + count) % count
+        if !browsing, let target { overlay.showCompletion(caret: target.caret, font: target.font) }
     }
 
     private func expandHistory() {
@@ -281,8 +305,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func insertionFailed() {
-        setupModel.status = "Paste cancelled: the destination changed or did not allow replacement. Open History and use Copy instead."
-        showSetup()
+        showBriefNotice("Paste cancelled · destination changed")
+    }
+
+    private func showBriefNotice(_ message: String) {
+        setupModel.status = message
+        overlay.showNotice(message)
+        let token = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            if self?.generation == token { self?.overlay.hide() }
+        }
     }
 
     private func copySelected() {
@@ -301,10 +333,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let token = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self, self.generation == token, let session = self.session,
-                  target.isFocused(), let snapshot = target.snapshot(), session.validates(text: snapshot.text, selection: snapshot.selection), self.keyboard.start() else { self?.cancel(); return }
+                  target.isFocused(), let snapshot = target.snapshot(), session.validates(text: snapshot.text, selection: snapshot.selection), (target.isNative || self.keyboard.start()) else { self?.cancel(); return }
             self.overlay.model.message = ""
             self.updateResults(query: session.query)
-            self.overlay.show(history: false, caret: target.caret)
+            self.overlay.showCompletion(caret: target.caret, font: target.font)
             self.pollTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in self?.refreshSession() }
         }
     }
@@ -352,7 +384,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cancel()
         setupModel.refresh()
         if setupWindow == nil {
-            setupWindow = window(title: "Ditto · Setup", view: SetupView(model: setupModel, preferences: preferences, enableCapture: { [weak self] in self?.capture.enableByUser() }, openPractice: { [weak self] in self?.showPractice() }, openHistory: { [weak self] in self?.menuHistory() }))
+            setupWindow = window(title: "Ditto · Setup", view: SetupView(model: setupModel, preferences: preferences, enableCapture: { [weak self] in self?.enableCapture() }, openPractice: { [weak self] in self?.showPractice() }, openHistory: { [weak self] in self?.menuHistory() }))
         }
         present(setupWindow!)
     }
@@ -381,6 +413,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if practiceWindow == nil {
             let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: 300))
             let text = NSTextView(frame: scroll.bounds)
+            text.identifier = NSUserInterfaceItemIdentifier("DittoPracticeEditor")
             text.isRichText = false
             text.isEditable = true
             text.allowsUndo = true
@@ -419,6 +452,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cancel()
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
         if let lockObserver { NSWorkspace.shared.notificationCenter.removeObserver(lockObserver) }
+        if let localKeys { NSEvent.removeMonitor(localKeys) }
         if let smokeDirectory { try? FileManager.default.removeItem(at: smokeDirectory) }
     }
 }

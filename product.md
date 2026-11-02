@@ -24,15 +24,15 @@ These are implementation choices from the UX proposal, rather than separately co
 
 - Use Command–L to expand history while a session is active. The original request used bare `l`; this conflicts with typing words beginning with l. Literal letters must remain query input.
 - Rank case-insensitive prefix matches before substring matches, then by recency. Empty query uses recency.
-- Show a compact candidate panel near the cursor first. Exact in-line gray text can follow once cross-app positioning is proven.
+- Option–Command–V must show transparent autocomplete text at the insertion cursor, without taking focus. It must never automatically expand history when completion is unavailable. History opens only through an explicit Command–L or menu action. Missing permissions get a small temporary hint, not a full history window.
 - Enter in compact mode keeps its normal destination-app behavior and ends the session. It never accepts a clipboard candidate.
 - History takes keyboard focus: typing filters inside Ditto, arrows select, Enter accepts, Escape returns to compact mode. Escape again exits. Clicking a row selects it for preview; the labeled Paste button or Enter accepts. Unsupported-field history labels Enter as Copy.
 - Seven-day retention, with pinned items retained until explicitly removed. Duplicate copies move an existing item to the top.
-- Plain-text insertion by default. Text-only completion and history ship before images, files, and rich formatting.
+- Plain-text insertion by default. Text-only completion and history ship before images, files, and rich formatting. Image capture remains deferred and must be clearly identified as unsupported, rather than presented as a broken text-history feature.
 
 ## Core flow
 
-1. Copy text normally. Capture permitted items silently, recording time and the source app when available.
+1. Clipboard history is enabled by default when no prior preference exists, following the user’s explicit request to fix capture. Preserve an explicit pause. Copy text normally; capture permitted items silently, recording time and the source app when available.
 2. Put an insertion cursor in a destination and press Option–Command–V.
 3. Record the destination app, focused editable element, insertion range, and the clipboard history snapshot for the session. Do not insert anything.
 4. Show the newest candidate with keyboard hints. Let normal characters pass through to the destination and derive the query from the destination's actual text and selection, rather than assuming key codes equal characters.
@@ -45,7 +45,7 @@ These are implementation choices from the UX proposal, rather than separately co
 
 - Never delete text using a blind sequence of Backspace events.
 - Cancel insertion if focus, selected range, or original query no longer matches the recorded destination.
-- Detect unsupported editable elements and offer an explicit history/copy fallback. Do not claim universal inline completion.
+- Detect unsupported editable elements and show a brief completion-unavailable hint. History/copy is available only on explicit request. Do not claim universal inline completion.
 - A preexisting selection is not an implicit replacement target in the first version; ask the user to place an insertion cursor.
 - Disable completion in secure text fields and during secure input where detectable. Respect clipboard exclusion/confidential markers and provide app exclusions and pause capture. Automatic secret detection is not guaranteed.
 - Read the focused field temporarily to validate the session (first adapter bounds fields to 100,000 UTF-16 units). Do not persist typed queries, destination contents, or key events.
@@ -85,7 +85,7 @@ These are implementation choices from the UX proposal, rather than separately co
 
 ## Deferred
 
-Images/files, rich-text insertion, sync, AI rewriting, semantic retrieval, snippet templates, exact ghost-text rendering, configurable shortcuts, distribution signing/notarization, and automatic updates. A local ad-hoc-signed development build is not a notarized distributable release.
+Images/files, rich-text insertion, sync, AI rewriting, semantic retrieval, snippet templates, configurable shortcuts, distribution signing/notarization, and automatic updates. A local ad-hoc-signed development build is not a notarized distributable release.
 
 ## Engineering workflow
 
@@ -94,3 +94,7 @@ Images/files, rich-text insertion, sync, AI rewriting, semantic retrieval, snipp
 - Commit and push incremental, reviewable changes to the provided repository.
 - Keep the existing portfolio repository untouched.
 - Never include credentials, private clipboard contents, or machine-specific permission databases in source control.
+
+## Handoff gate after initial prototype feedback
+
+The initial prototype was rejected: its default large history popup was not the agreed autocomplete UX, capture had not been verified live, and compilation/unit checks were incorrectly treated as enough for a usable handoff. Before another usable-app handoff, record actual native end-to-end results for copy → capture → invoke → type → accept, candidate cycling, history, Escape, stale focus/app switches, and the intended destination apps. A failed or untested path remains explicitly incomplete; a smoke check does not satisfy this gate.

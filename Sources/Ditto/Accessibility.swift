@@ -8,11 +8,19 @@ struct TextSnapshot {
 }
 
 struct TextTarget {
-    let element: AXUIElement
+    private let element: AXUIElement?
+    private let nativeView: NSTextView?
     let pid: pid_t
-    let caret: CGRect?
+    var isNative: Bool { nativeView != nil }
+    var caret: CGRect? { caretBounds() }
+    var font: NSFont { nativeView?.font ?? .systemFont(ofSize: 14) }
 
     static func focused() -> TextTarget? {
+        if NSApp.isActive, let text = NSApp.keyWindow?.firstResponder as? NSTextView,
+           text.identifier?.rawValue == "DittoPracticeEditor" {
+            return TextTarget(element: nil, nativeView: text, pid: ProcessInfo.processInfo.processIdentifier)
+        }
+        guard AXIsProcessTrusted() else { return nil }
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 0.15)
         guard let value = attribute(system, kAXFocusedUIElementAttribute),
@@ -24,20 +32,13 @@ struct TextTarget {
         guard [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role ?? "") else { return nil }
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success else { return nil }
-        let target = TextTarget(element: element, pid: pid, caret: nil)
-        guard let snapshot = target.snapshot() else { return nil }
-        var range = CFRange(location: snapshot.selection.location, length: 0)
-        var bounds: CFTypeRef?
-        var rect = CGRect.zero
-        if let value = AXValueCreate(.cfRange, &range),
-           AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, value, &bounds) == .success,
-           let bounds, CFGetTypeID(bounds) == AXValueGetTypeID() {
-            AXValueGetValue(bounds as! AXValue, .cgRect, &rect)
-        }
-        return TextTarget(element: element, pid: pid, caret: rect.isEmpty ? nil : rect)
+        let target = TextTarget(element: element, nativeView: nil, pid: pid)
+        return target.snapshot() == nil ? nil : target
     }
 
     var supportsReplacement: Bool {
+        if let nativeView { return nativeView.isEditable }
+        guard let element else { return false }
         var text = DarwinBoolean(false)
         var range = DarwinBoolean(false)
         return AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &text) == .success && text.boolValue
@@ -45,7 +46,8 @@ struct TextTarget {
     }
 
     func snapshot() -> TextSnapshot? {
-        guard let text = Self.attribute(element, kAXValueAttribute) as? String,
+        if let nativeView { return TextSnapshot(text: nativeView.string, selection: nativeView.selectedRange()) }
+        guard let element, let text = Self.attribute(element, kAXValueAttribute) as? String,
               text.utf16.count <= 100_000,
               let raw = Self.attribute(element, kAXSelectedTextRangeAttribute),
               CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
@@ -54,21 +56,47 @@ struct TextTarget {
         return TextSnapshot(text: text, selection: NSRange(location: range.location, length: range.length))
     }
 
+    func caretBounds() -> CGRect? {
+        if let nativeView {
+            let rect = nativeView.firstRect(forCharacterRange: nativeView.selectedRange(), actualRange: nil)
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            return CGRect(x: rect.minX, y: top - rect.maxY, width: max(1, rect.width), height: rect.height)
+        }
+        guard let element, let snapshot = snapshot() else { return nil }
+        var range = CFRange(location: snapshot.selection.location, length: 0)
+        var bounds: CFTypeRef?
+        var rect = CGRect.zero
+        if let value = AXValueCreate(.cfRange, &range),
+           AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, value, &bounds) == .success,
+           let bounds, CFGetTypeID(bounds) == AXValueGetTypeID(),
+           AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0 {
+            return rect
+        }
+        return nil
+    }
+
     func isFocused() -> Bool {
+        if let nativeView { return NSApp.isActive && NSApp.keyWindow?.firstResponder === nativeView }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              let current = Self.focused() else { return false }
-        return current.pid == pid && CFEqual(current.element, element)
+              let current = Self.focused(), let currentElement = current.element, let element else { return false }
+        return current.pid == pid && CFEqual(currentElement, element)
     }
 
     func replace(session: CompletionSession, with text: String) -> Bool {
         guard isFocused(), supportsReplacement, let snapshot = snapshot(),
               session.validates(text: snapshot.text, selection: snapshot.selection) else { return false }
+        if let nativeView {
+            nativeView.breakUndoCoalescing()
+            nativeView.insertText(text, replacementRange: session.replacementRange)
+            nativeView.breakUndoCoalescing()
+            return true
+        }
+        guard let element else { return false }
         var range = CFRange(location: session.replacementRange.location, length: session.replacementRange.length)
         guard let value = AXValueCreate(.cfRange, &range),
               AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value) == .success else { return false }
-        // Validate the newly selected range and unchanged text before the one mutating write.
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              let current = Self.focused(), CFEqual(current.element, element),
+              let current = Self.focused(), let currentElement = current.element, CFEqual(currentElement, element),
               let selected = self.snapshot(), selected.text.utf16.elementsEqual(snapshot.text.utf16),
               selected.selection == session.replacementRange else { return false }
         let result = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
