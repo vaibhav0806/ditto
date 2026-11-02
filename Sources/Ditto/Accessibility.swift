@@ -16,7 +16,7 @@ struct TextTarget {
     var isNative: Bool { nativeView != nil }
     var caret: CGRect? { caretBounds() }
     var placeholderRegion: CGRect? {
-        guard snapshot()?.text.isEmpty == true, let caret else { return nil }
+        guard let snapshot = snapshot(), InputPolicy.isVisuallyBlank(snapshot.text), let caret else { return nil }
         let frame: CGRect
         if let nativeView, let window = nativeView.window {
             let rect = window.convertToScreen(nativeView.convert(nativeView.bounds, to: nil))

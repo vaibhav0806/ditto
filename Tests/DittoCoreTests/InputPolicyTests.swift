@@ -1,5 +1,13 @@
 import DittoCore
 
+func testEmptyComposerPresentationGuards() {
+    for text in ["", "\n", " \t\n", "\u{200B}\u{FEFF}"] { expectTrue(InputPolicy.isVisuallyBlank(text)) }
+    for text in ["hello\n", "👋", "हाय"] { expectFalse(InputPolicy.isVisuallyBlank(text)) }
+    expectFalse(InputPolicy.allowsInlineCompletion(query: "", hasMask: false))
+    expectTrue(InputPolicy.allowsInlineCompletion(query: "", hasMask: true))
+    expectTrue(InputPolicy.allowsInlineCompletion(query: "di", hasMask: false))
+}
+
 func testSessionKeyPolicy() {
     expectEqual(InputPolicy.key(code: 37, hasCandidate: true), .typeNormally) // literal l
     expectEqual(InputPolicy.key(code: 1, hasCandidate: true), .typeNormally) // literal s

@@ -65,6 +65,24 @@ func testAmbiguousBackgroundIsNotReplacedWithAnAverage() {
     expectNil(PlaceholderMask.background(rgba: [255], width: 40, height: 24))
 }
 
+func testScreenCaptureDitheringUsesAnObservedDominantColor() {
+    let samples: [[UInt8]] = [[17, 17, 17, 255], [17, 17, 17, 255], [17, 17, 17, 255], [17, 17, 17, 255],
+                            [17, 17, 17, 255], [17, 17, 17, 255], [16, 17, 17, 255], [17, 18, 17, 255],
+                            [17, 17, 18, 255], [18, 17, 17, 255]]
+    let dithered = (0..<(40 * 24)).flatMap { samples[$0 % samples.count] }
+    expectEqual(PlaceholderMask.background(rgba: dithered, width: 40, height: 24), MaskColor(red: 17, green: 17, blue: 17))
+}
+
+func testGrayDitheringCanBeSpreadAcrossSeveralNearbyColors() {
+    var samples = Array(repeating: [UInt8(35), 37, 41, 255], count: 5)
+    samples += Array(repeating: [34, 37, 41, 255], count: 4)
+    samples += Array(repeating: [35, 37, 40, 255], count: 3)
+    samples += Array(repeating: [34, 37, 40, 255], count: 3)
+    samples += [[34, 36, 41, 255], [35, 38, 40, 255], [35, 36, 40, 255], [34, 38, 41, 255], [36, 37, 42, 255]]
+    let pixels = (0..<(40 * 24)).flatMap { samples[$0 % samples.count] }
+    expectEqual(PlaceholderMask.background(rgba: pixels, width: 40, height: 24), MaskColor(red: 35, green: 37, blue: 41))
+}
+
 func testMaskStaysInsideTheInputAndCoversThePlaceholderLine() {
     let field = CGRect(x: 10, y: 20, width: 400, height: 100)
     let caret = CGRect(x: 26, y: 36, width: 0, height: 18)

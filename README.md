@@ -31,7 +31,7 @@ Fields with reliable selection support can replace the query with the whole copi
 
 ## Empty-field background matching (prototype)
 
-With Screen Recording permission enabled in Ditto → Setup, the prototype samples a narrow strip of the focused empty input. It excludes Ditto overlays and uses the sampled color only when the surrounding pixels agree exactly. A temporary visual mask covers the placeholder line while preserving the native caret. Typing, dismissal, focus/region changes, and pointer/scroll activity remove the mask; the destination text is not changed by masking.
+With Screen Recording permission enabled in Ditto → Setup, the prototype samples a narrow strip of the focused empty input. It excludes Ditto overlays and uses an observed sampled color only when the surrounding pixels pass a bounded capture-noise check. A temporary visual mask covers the placeholder line while preserving the native caret. Typing, dismissal, focus/region changes, and pointer/scroll activity remove the mask; the destination text is not changed by masking.
 
 Without permission, reliable geometry, or a uniform sample, suggestions appear below the placeholder line. This first-line prototype does not establish seamless behavior for gradients, textures, animated backgrounds, wrapped placeholders, all display profiles, or every host app. Product samples remain in memory; only controlled developer fixtures may be saved by the test runner.
 

@@ -472,7 +472,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             overlay.showCompletion(caret: caret, font: font, inline: false)
             return
         }
-        if !session.query.isEmpty || target.snapshot()?.text.isEmpty == false {
+        if !session.query.isEmpty {
             placeholderBackground = nil
             maskRequestID = nil
             maskAttempted = false

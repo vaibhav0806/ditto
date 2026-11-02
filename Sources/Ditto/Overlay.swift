@@ -219,7 +219,7 @@ final class OverlayController {
         content.setFrameSize(NSSize(width: max(width, 240), height: lineHeight + 16))
         let size = content.frame.size
         ghost.contentView = content
-        placeGhost(size: size, caret: caret, inline: isPrefix && inline)
+        placeGhost(size: size, caret: caret, inline: isPrefix && inline && InputPolicy.allowsInlineCompletion(query: model.query, hasMask: background != nil))
     }
 
     func showNotice(_ message: String, caret: CGRect? = nil) {

@@ -47,10 +47,16 @@ The successful final results are `.build/e2e-textedit.json` and `.build/e2e-text
 Core tests use named pasteboards and temporary databases. Native E2E deliberately uses the actual clipboard and live Ditto capture with generated fixture text; these fixture rows can appear in history. No personal clipboard payloads or document snapshots are included in logs or source control. Paste transactions restore the previous clipboard only after destination readback and only while they still own it; they never replay an uncertain insertion.
 
 
-## Placeholder mask iteration — live checks pending
+## Placeholder mask checkpoint — 2026-11-02
 
-Current automated checks: 23 tests passed. New checks cover exact sampled colors (white, #111111, #222529), rejection of varying/transparent samples, mask geometry bounded inside the input, and actual AppKit mask rendering with exact RGBA fill and a transparent caret slot at both 1x and 2x (six rendered color/scale combinations).
+Current automated checks: **26 tests passed**. These cover exact controlled RGB colors at 1x/2x, caret transparency, input-bounded geometry, capture dithering, visually blank rich-text paragraphs, and the rule that an initial suggestion cannot draw inline without a mask. A signed release build and strict signature verification succeeded.
 
-The new ScreenCaptureKit sampler and rendering path build successfully. A signed-app permission diagnostic returned `screen capture access: false`. The user approved enabling Screen Recording, but macOS requires local authentication before the app can be added. Live fixture pixel comparisons and native regression for this revision have not run yet. The earlier TextEdit results above belong to the preceding revision and are not substitutes for this iteration's live checks.
+Screen Recording is enabled. The first capture triggered a system notification that the user handled after the automation tool rejected access to UserNotificationCenter. No bypass was attempted.
 
-The pending native `mask` scenario uses a disposable custom NSTextView fixture with placeholder text, three solid background colors, and a striped background. It is designed to compare original placeholder pixels with post-mask screen pixels, check that the draft remains empty, verify removal on typing, and reject masking on the striped background. This is not Slack/T3 cross-app proof. Those actual apps still require separate checks.
+Latest live run: **failed overall** at the gray fixture (#222529), where no mask appeared. The preceding dark (#111111) and white fixtures passed: no draft mutation or focus theft, zero maximum channel error in the checked exposed background area, no remaining placeholder pixels there, mask removal on typing, Esc dismissal, Tab acceptance, and undo. The striped fixture was not reached in that final run. Earlier failed attempts are not counted as passes.
+
+A live capture introduces one-level color variation even on a solid field. The sampler now selects an observed color within a tightly bounded noise range, retaining conservative ambiguity rejection. The measurement compares rendered before/after captures in the same converted color space; it does not equate internal RGB components with an independently color-converted pixel value. This still does not prove full-glyph, wrapped-placeholder, arbitrary-texture, or every-profile matching.
+
+The native `mask` scenario uses a disposable custom NSTextView with placeholder text. It is not Slack/T3 compatibility proof. Those actual apps have not passed a live mask check. The stronger presentation guard now treats structural whitespace as visually blank and prevents any unmasked initial inline suggestion; a rejected or unavailable mask uses a below-line preview.
+
+The prior TextEdit regression results above belong to the preceding revision; native completion regression has not been rerun for this checkpoint. The full live-mask and cross-app handoff gate remains open. Generated test reports and screenshots stay under ignored `.build/`; personal clipboard payloads and machine permission data are not committed.

@@ -3,6 +3,7 @@ import ApplicationServices
 import Carbon
 import ScreenCaptureKit
 import DittoCore
+import DittoCapture
 
 private final class MaskFixtureEditor: NSTextView {
     var fill = NSColor(srgbRed: 17 / 255, green: 17 / 255, blue: 17 / 255, alpha: 1)
@@ -35,6 +36,8 @@ public final class NativeE2E {
     private let token = "ditto-e2e-" + UUID().uuidString.prefix(8).lowercased()
     private var finished = false
     private var destinationWindow: NSWindow?
+    private var checkedMaskEscape = false
+    private var checkedMaskAcceptance = false
 
     public init(output: URL, appID: String = "com.apple.TextEdit") {
         self.output = output
@@ -110,7 +113,13 @@ public final class NativeE2E {
             let field = CGRect(x: nativeField.minX, y: top - nativeField.maxY, width: nativeField.width, height: nativeField.height)
             guard let region = PlaceholderMask.region(field: field, caret: caret) else { self.finish(error: "Fixture has no valid mask region"); return }
             self.captureRegion(region) { before in
-                guard let before, self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                guard let before else { return }
+                self.results.append(["scenario": "source sample case \(index)", "uniform": String(PlaceholderBackgroundSampler.classify(image: before) != nil), "width": String(before.width), "height": String(before.height)])
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == self.expectedPID {
+                    let png = NSBitmapImageRep(cgImage: before).representation(using: .png, properties: [:])
+                    try? png?.write(to: self.output.deletingPathExtension().appendingPathExtension("source-\(index).png"))
+                }
+                guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
                 self.awaitMask(editor, index: index, region: region, before: before, attempts: 20)
             }
         }
@@ -139,6 +148,30 @@ public final class NativeE2E {
             self.captureRegion(region) { after in
                 guard let after else { return }
                 self.checkMaskPixels(before: before, after: after, index: index)
+                if index == 0 && !self.checkedMaskEscape {
+                    self.checkedMaskEscape = true
+                    guard self.key(53) else { return }
+                    self.after(0.2) {
+                        self.record("Esc removes mask without changing draft", passed: !mask.isVisible && editor.string.isEmpty)
+                        guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                        self.awaitMask(editor, index: index, region: region, before: before, attempts: 20)
+                    }
+                    return
+                }
+                if index == 1 && !self.checkedMaskAcceptance {
+                    self.checkedMaskAcceptance = true
+                    guard self.key(48) else { return }
+                    self.after(0.2) {
+                        self.record("Tab accepts from masked empty field", passed: !mask.isVisible && editor.string == self.token)
+                        guard self.key(6, flags: .maskCommand) else { return }
+                        self.after(0.2) {
+                            self.record("masked acceptance undo restores empty field", passed: editor.string.isEmpty)
+                            guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                            self.awaitMask(editor, index: index, region: region, before: before, attempts: 20)
+                        }
+                    }
+                    return
+                }
                 guard self.type("di") else { return }
                 self.after(0.25) {
                     self.record("mask case \(index) disappears on typing", passed: !mask.isVisible && editor.string == "di")
@@ -166,18 +199,30 @@ public final class NativeE2E {
             guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
             return [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
         }
-        guard source.pixelsWide == masked.pixelsWide, source.pixelsHigh == masked.pixelsHigh, let reference = rgb(source, 0, 0) else {
+        guard source.pixelsWide == masked.pixelsWide, source.pixelsHigh == masked.pixelsHigh else {
             finish(error: "Fixture screenshot dimensions changed"); return
         }
-        var originalInk = 0
-        var remainingInk = 0
-        for y in 4..<(source.pixelsHigh - 4) {
-            for x in (source.pixelsWide / 2)..<(source.pixelsWide - 8) {
-                if rgb(source, x, y) != reference { originalInk += 1 }
-                if rgb(masked, x, y) != reference { remainingInk += 1 }
+        var backgroundCounts: [[Int]: Int] = [:]
+        for y in 0..<2 {
+            for x in 0..<source.pixelsWide {
+                if let color = rgb(source, x, y) { backgroundCounts[color, default: 0] += 1 }
             }
         }
-        record("mask case \(index) removes placeholder pixels with exact background", passed: originalInk > 20 && remainingInk == 0)
+        guard let reference = backgroundCounts.max(by: { $0.value < $1.value })?.key else { finish(error: "Source background reference missing"); return }
+        var originalInk = 0
+        var remainingInk = 0
+        var maximumError = 0
+        for y in 4..<(source.pixelsHigh - 4) {
+            for x in (source.pixelsWide / 2)..<(source.pixelsWide - 8) {
+                let beforeError = zip(rgb(source, x, y) ?? [0, 0, 0], reference).map { abs($0 - $1) }.max() ?? 255
+                let afterError = zip(rgb(masked, x, y) ?? [0, 0, 0], reference).map { abs($0 - $1) }.max() ?? 255
+                if beforeError > 1 { originalInk += 1 }
+                if afterError > 1 { remainingInk += 1 }
+                maximumError = max(maximumError, afterError)
+            }
+        }
+        results.append(["scenario": "live pixel measurement case \(index)", "maxChannelError": String(maximumError), "originalPlaceholderPixels": String(originalInk), "remainingPixelsAboveDither": String(remainingInk)])
+        record("mask case \(index) removes placeholder within measured capture dithering", passed: originalInk > 20 && remainingInk == 0)
         let png = NSBitmapImageRep(cgImage: after).representation(using: .png, properties: [:])
         try? png?.write(to: output.deletingPathExtension().appendingPathExtension("mask-\(index).png"))
     }

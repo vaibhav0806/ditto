@@ -7,6 +7,12 @@ public enum SessionKeyAction: Equatable {
 public enum InvocationPresentation { case completion, notice, history }
 
 public enum InputPolicy {
+    public static func isVisuallyBlank(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) || $0.value == 0x200B || $0.value == 0xFEFF }
+    }
+
+    public static func allowsInlineCompletion(query: String, hasMask: Bool) -> Bool { !query.isEmpty || hasMask }
+
     public static func permitsBackgroundRead(access: Int) -> Bool { access == 0 || access == 2 }
     public static func captureEnabled(saved: Bool?) -> Bool { saved ?? true }
     public static func invocation(explicitHistory: Bool, canComplete: Bool) -> InvocationPresentation {

@@ -1,6 +1,7 @@
 import AppKit
 import ScreenCaptureKit
 import DittoCore
+import OSLog
 
 public struct PlaceholderBackground: Equatable {
     public let region: CGRect
@@ -18,14 +19,19 @@ public struct PlaceholderBackground: Equatable {
 }
 
 public enum PlaceholderBackgroundSampler {
+    private static let logger = Logger(subsystem: "com.vaibhav0806.ditto", category: "Mask")
     public static func capture(region: CGRect, excludingWindows: Set<CGWindowID>, isCurrent: @escaping () -> Bool, completion: @escaping (PlaceholderBackground?) -> Void) {
-        guard #available(macOS 14, *), CGPreflightScreenCaptureAccess() else { completion(nil); return }
+        guard #available(macOS 14, *), CGPreflightScreenCaptureAccess() else {
+            logger.notice("Mask sampling unavailable: OS version or screen permission")
+            completion(nil); return
+        }
         let scale = NSScreen.screens.first { screen in
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             return screen.frame.contains(NSPoint(x: region.midX, y: top - region.midY))
         }?.backingScaleFactor ?? 1
-        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { content, _ in
+        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { content, error in
             guard let content, let display = content.displays.first(where: { $0.frame.contains(region) }) else {
+                logger.notice("Mask display unavailable; error=\((error as NSError?)?.code ?? 0)")
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
@@ -36,11 +42,12 @@ public enum PlaceholderBackgroundSampler {
             configuration.height = Int((region.height * scale).rounded(.up))
             configuration.showsCursor = false
             DispatchQueue.main.async {
-                guard isCurrent() else { completion(nil); return }
-                SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, _ in
+                guard isCurrent() else { logger.notice("Mask capture cancelled before sampling: stale target"); completion(nil); return }
+                SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, error in
                     DispatchQueue.main.async {
-                        guard isCurrent() else { completion(nil); return }
+                        guard isCurrent() else { logger.notice("Mask capture discarded: stale target"); completion(nil); return }
                         let color = image.flatMap { classify(image: $0) }
+                        logger.notice("Mask sample pixels=\(image?.width ?? 0)x\(image?.height ?? 0) uniform=\(color != nil) error=\((error as NSError?)?.code ?? 0)")
                         completion(color.map { PlaceholderBackground(region: region, color: $0) })
                     }
                 }
