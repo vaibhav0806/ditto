@@ -37,6 +37,9 @@ private final class HistoryCell: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         title.font = .systemFont(ofSize: 13)
+        title.maximumNumberOfLines = 1
+        title.cell?.usesSingleLineMode = true
+        title.cell?.truncatesLastVisibleLine = true
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         age.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -52,8 +55,8 @@ private final class HistoryCell: NSTableCellView {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16), icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            pin.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 6), pin.widthAnchor.constraint(equalToConstant: 10), pin.heightAnchor.constraint(equalToConstant: 10),
-            age.leadingAnchor.constraint(equalTo: pin.trailingAnchor, constant: 8), age.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+            pin.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 12), pin.widthAnchor.constraint(equalToConstant: 14), pin.heightAnchor.constraint(equalToConstant: 10),
+            age.leadingAnchor.constraint(equalTo: pin.trailingAnchor, constant: 8), age.widthAnchor.constraint(equalToConstant: 36), age.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.cell)
@@ -62,7 +65,9 @@ private final class HistoryCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func setSelected(_ selected: Bool) {
-        title.attributedStringValue = NSAttributedString(string: title.stringValue, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .regular), .foregroundColor: selected ? NSColor.alternateSelectedControlTextColor : NSColor.labelColor])
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        title.attributedStringValue = NSAttributedString(string: title.stringValue, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .regular), .foregroundColor: selected ? NSColor.alternateSelectedControlTextColor : NSColor.labelColor, .paragraphStyle: paragraph])
         age.textColor = selected ? .selectedMenuItemTextColor : .secondaryLabelColor
         pin.contentTintColor = selected ? .selectedMenuItemTextColor : .tertiaryLabelColor
     }
@@ -352,7 +357,9 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
             let monospaced = text.contains(where: \.isNewline) || text.first?.isWhitespace == true
             preview.font = monospaced ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 13)
             preview.textColor = .labelColor
-            let paragraph = NSMutableParagraphStyle(); paragraph.lineHeightMultiple = monospaced ? 1.3 : 1.45
+            let paragraph = NSMutableParagraphStyle()
+            if monospaced { paragraph.minimumLineHeight = 16; paragraph.maximumLineHeight = 16 }
+            else { paragraph.lineHeightMultiple = 1.45 }
             preview.defaultParagraphStyle = paragraph
             preview.textStorage?.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: preview.string.utf16.count))
             if monospaced, let font = preview.font {

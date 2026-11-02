@@ -67,7 +67,10 @@ final class HistoryLiveCheck {
         model.destinationBundleID = "com.apple.TextEdit"
         model.query = "sample"
         clips = [ClipboardEntry(text: "{\n  \"sample\": \"clipboard\",\n  \"local\": true,\n  \"preview\": \"original text stays unchanged\"\n}", source: "TextEdit", sourceBundleID: "com.apple.TextEdit")]
-        for index in 1...12 { clips.append(ClipboardEntry(text: "sample clip \(index)", copiedAt: Date().addingTimeInterval(Double(-60 * index)), source: "Safari", sourceBundleID: "com.apple.Safari", pinned: index == 2)) }
+        for index in 1...12 {
+            let text = index == 1 ? "https://example.com/sample/very/long/path/to/a/copied/resource?query=original-text-stays-unchanged&local=true" : index == 2 ? "👩🏽‍💻\t sample command --keep-original-whitespace --preview-only" : "sample clip \(index)"
+            clips.append(ClipboardEntry(text: text, copiedAt: Date().addingTimeInterval(Double(-60 * index)), source: "Safari", sourceBundleID: "com.apple.Safari", pinned: index == 2))
+        }
         model.entries = clips
         model.onMove = { [weak self] delta in
             guard let self else { return }

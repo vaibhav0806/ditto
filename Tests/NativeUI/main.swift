@@ -83,7 +83,11 @@ let editor = search.currentEditor() as! NSTextView
 check("search receives initial keyboard focus", window.firstResponder === editor)
 check("native table has accessible row semantics", table.accessibilityRole() == .table && (0..<table.numberOfRows).filter { table.delegate?.tableView?(table, shouldSelectRow: $0) == true }.count == clips.count)
 check("results are dense 34 point rows", table.rect(ofRow: 1).height == 34)
+let rowTitle = all.compactMap { $0 as? NSTextField }.first { $0.stringValue == HistoryPresentation.rowTitle(clips[0].text) }!
+check("long row excerpt is strictly single-line", rowTitle.maximumNumberOfLines == 1 && rowTitle.cell?.usesSingleLineMode == true && rowTitle.lineBreakMode == .byTruncatingTail && rowTitle.frame.height <= 20)
 check("preview retains original selectable text", text.string == clips[0].text && text.isSelectable && !text.isEditable)
+let codeStyle = text.textStorage?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+check("code preview uses sixteen point line spacing", codeStyle?.minimumLineHeight == 16 && codeStyle?.maximumLineHeight == 16)
 check("preview whitespace markers are quiet by default", text.layoutManager?.showsInvisibleCharacters == false)
 func key(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = []) {
     let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
