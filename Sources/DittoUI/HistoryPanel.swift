@@ -186,6 +186,7 @@ public final class HistoryPanelView: NSVisualEffectView, NSTableViewDataSource, 
         preview.isHorizontallyResizable = false
         preview.autoresizingMask = [.width]
         preview.textContainer?.widthTracksTextView = true
+        preview.textContainer?.lineFragmentPadding = 0
         preview.layoutManager?.showsInvisibleCharacters = false
         preview.setAccessibilityLabel("Selected clipboard text preview")
         previewScroll.documentView = preview

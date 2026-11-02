@@ -50,7 +50,7 @@ Files: existing native verification infrastructure, docs/verification.md and pro
 - [x] Render controlled fixtures in the actual native panel in dark/light and long/empty/no-result states; inspect screenshots.
 - [x] Check query focus, selection, Actions, Escape and original host-query preservation with real native events where permissions permit. Do not count Secure Input or focus-interrupted checks as passes.
 - [x] Run core and native UI checks, signed release build and strict signature verification.
-- [x] Commit/push the final polish, open/link draft PR #2, launch the signed app normally, and record actual verification separately from remaining limitations. Real system Increase Contrast/Reduce Transparency checks await user confirmation; the PR remains draft.
+- [x] Commit/push the final polish, open/link draft PR #2, launch the signed app normally, and record actual verification separately from remaining limitations. Real system Increase Contrast/Reduce Transparency checks subsequently passed with user authorization and original settings restored; final captures sent for reviewer clearance.
 
 ## Rulings
 
@@ -62,3 +62,5 @@ Files: existing native verification infrastructure, docs/verification.md and pro
 
 - Verification: focused TextEdit history flow passed 15 results including runner; live controlled panel passed 11 including runner. The broad multi-copy TextEdit runner remains incomplete after a synthetic Cmd-A selection failure; do not count it as a pass. See docs/verification.md.
 - Ruling: signed-app live captures use only generated workspace/clipboard fixtures. Per-window high-contrast appearance is not a global accessibility-setting test.
+
+- Verification: real system Increase Contrast (with macOS-enforced Reduce Transparency) and standalone Reduce Transparency each passed the 11-result live panel run. Original off/off values restored and independently confirmed through NSWorkspace.
