@@ -29,5 +29,7 @@ test("SQLite reopen and Unicode", history.testPersistsUnicodeAndSQLCharactersAcr
 test("deduplication and pin", history.testRecopyPromotesWithoutDuplicatingOrLosingPin)
 test("retention, delete and clear", history.testRetentionPreservesPinnedAndDeleteAndClearAreDurable)
 test("history bounds and capture rejection", history.testRejectsEmptyAndOversizeAndNullTextAndBoundsUnpinnedHistory)
+test("keyboard mode boundaries", testSessionKeyPolicy)
+test("clipboard confidentiality policy", testConfidentialClipboardPolicy)
 print("\(tests) tests, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

@@ -1,2 +1,6 @@
-import Foundation
-print("Ditto is being built.")
+import AppKit
+
+let application = NSApplication.shared
+let controller = AppController()
+application.delegate = controller
+application.run()
