@@ -46,7 +46,8 @@ public enum PlaceholderMask {
         }
         let ranked = counts.sorted { $0.value > $1.value }
         guard let dominant = ranked.first,
-              ranked.count < 2 || ranked[1].value * 100 <= total * 25 else { return nil }
+              ranked.count < 2 || ranked[1].value * 100 <= total * 25
+                || (ranked.count >= 3 && ranked[2].value * 100 >= total * 5) else { return nil }
         for color in counts.keys {
             guard abs(Int(color.red) - Int(dominant.key.red)) <= 1,
                   abs(Int(color.green) - Int(dominant.key.green)) <= 1,

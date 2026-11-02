@@ -20,8 +20,10 @@ func test(_ name: String, _ body: () throws -> Void) {
 }
 let suite = CompletionTests()
 test("exact placeholder background color", testUniformBackgroundPreservesExactColor)
+test("capture retains color profile components", testCaptureKeepsItsColorProfileComponents)
 test("reject ambiguous placeholder backgrounds", testAmbiguousBackgroundIsNotReplacedWithAnAverage)
 test("screen capture dithering uses observed dominant color", testScreenCaptureDitheringUsesAnObservedDominantColor)
+test("captured gray quantization levels", testCapturedGrayHasSeveralSignificantQuantizationLevels)
 test("gray background diffuse dithering", testGrayDitheringCanBeSpreadAcrossSeveralNearbyColors)
 test("placeholder mask stays inside input", testMaskStaysInsideTheInputAndCoversThePlaceholderLine)
 test("rendered mask exact pixels and caret at 1x/2x", testRenderedMaskUsesExactSampleAndPreservesCaretTransparency)

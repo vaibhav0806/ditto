@@ -6,10 +6,16 @@ import OSLog
 public struct PlaceholderBackground: Equatable {
     public let region: CGRect
     public let color: MaskColor
+    public let colorSpace: CGColorSpace
 
-    public init(region: CGRect, color: MaskColor) {
+    public init(region: CGRect, color: MaskColor, colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!) {
         self.region = region
         self.color = color
+        self.colorSpace = colorSpace
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.region == rhs.region && lhs.color == rhs.color && CFEqual(lhs.colorSpace, rhs.colorSpace)
     }
 
     public var ink: NSColor {
@@ -48,7 +54,9 @@ public enum PlaceholderBackgroundSampler {
                         guard isCurrent() else { logger.notice("Mask capture discarded: stale target"); completion(nil); return }
                         let color = image.flatMap { classify(image: $0) }
                         logger.notice("Mask sample pixels=\(image?.width ?? 0)x\(image?.height ?? 0) uniform=\(color != nil) error=\((error as NSError?)?.code ?? 0)")
-                        completion(color.map { PlaceholderBackground(region: region, color: $0) })
+                        completion(color.flatMap { color in
+                            image?.colorSpace.map { PlaceholderBackground(region: region, color: color, colorSpace: $0) }
+                        })
                     }
                 }
             }
@@ -58,11 +66,12 @@ public enum PlaceholderBackgroundSampler {
     public static func classify(image: CGImage) -> MaskColor? {
         let width = image.width
         let height = image.height
-        guard width >= 8, height >= 8, width <= 4096, height <= 512 else { return nil }
+        guard width >= 8, height >= 8, width <= 4096, height <= 512,
+              let colorSpace = image.colorSpace, colorSpace.model == .rgb else { return nil }
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bytesPerRow: width * 4, space: colorSpace,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
@@ -87,7 +96,7 @@ public final class PlaceholderMaskView: NSView {
     public override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let color = background.color
-        context.setFillColor(CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!, components: [CGFloat(color.red) / 255, CGFloat(color.green) / 255, CGFloat(color.blue) / 255, 1])!)
+        context.setFillColor(CGColor(colorSpace: background.colorSpace, components: [CGFloat(color.red) / 255, CGFloat(color.green) / 255, CGFloat(color.blue) / 255, 1])!)
         context.fill(bounds)
         context.clear(caretHole)
     }
