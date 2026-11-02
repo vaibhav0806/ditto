@@ -64,7 +64,7 @@ final class KeyboardMonitor {
 
     func start() -> Bool {
         if let tap { CGEvent.tapEnable(tap: tap, enable: true); return true }
-        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
+        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue) | (1 << CGEventType.scrollWheel.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue)
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: CGEventMask(mask), callback: { _, type, event, pointer in
             guard let pointer else { return Unmanaged.passUnretained(event) }
             let monitor = Unmanaged<KeyboardMonitor>.fromOpaque(pointer).takeUnretainedValue()

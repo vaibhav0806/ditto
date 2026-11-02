@@ -20,6 +20,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var target: TextTarget?
     private var session: CompletionSession?
     private var expectedQuery = CompletionSession()
+    private var placeholderBackground: PlaceholderBackground?
+    private var maskRequestID: UUID?
+    private var maskAttempted = false
     private var lastTypedInput = Date.distantPast
     private var candidates: [ClipboardEntry] = []
     private var browsing = false
@@ -76,6 +79,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         keyboard.onClick = { [weak self] in
             guard let self, self.session != nil, !self.browsing else { return }
             self.handlingKeys = false
+            self.overlay.hideForTyping()
             DispatchQueue.main.async { self.cancel() }
         }
         keyboard.onDisabled = { [weak self] in DispatchQueue.main.async { self?.cancel() } }
@@ -223,7 +227,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlay.model.canInsert = true
         overlay.model.message = ""
         updateResults(query: "")
-        overlay.showCompletion(caret: target?.caret, font: target?.font ?? .systemFont(ofSize: 14))
+        renderCompletion()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in self?.refreshSession() }
     }
 
@@ -250,6 +254,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.cancel() } }
             return action == .dismiss
         case .typeNormally:
+            overlay.hideForTyping()
             if let session {
                 let code = event.getIntegerValueField(.keyboardEventKeycode)
                 var expected = expectedQuery
@@ -277,13 +282,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             cancel()
             return false
         }
+        if let background = placeholderBackground, target.placeholderRegion != background.region {
+            cancel()
+            return false
+        }
         if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(), let value = TISGetInputSourceProperty(source, kTISPropertyInputSourceType) {
             let type = Unmanaged<CFString>.fromOpaque(value).takeUnretainedValue() as String
             if type == kTISTypeKeyboardInputMode as String { cancel(); return false }
         }
         if session.isKeystrokeTracked {
             updateResults(query: session.query)
-            overlay.showCompletion(caret: target.caret, font: target.font)
+            renderCompletion()
             return true
         }
         guard let snapshot = target.snapshot(), session.observe(text: snapshot.text, selection: snapshot.selection) else {
@@ -300,7 +309,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.session = session
         if session.query != previousQuery {
             updateResults(query: session.query)
-            overlay.showCompletion(caret: target.caret, font: target.font)
+            renderCompletion()
         }
         return true
     }
@@ -319,7 +328,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let count = overlay.model.entries.count
         guard count > 0 else { return }
         overlay.model.selectedIndex = (overlay.model.selectedIndex + delta + count) % count
-        if !browsing, let target { overlay.showCompletion(caret: target.caret, font: target.font) }
+        if !browsing { renderCompletion() }
     }
 
     private func expandHistory() {
@@ -423,7 +432,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.handlingKeys = true
             self.overlay.model.message = ""
             self.updateResults(query: session.query)
-            self.overlay.showCompletion(caret: target.caret, font: target.font)
+            self.renderCompletion()
             self.pollTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in self?.refreshSession() }
         }
     }
@@ -452,6 +461,57 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return session.validates(text: snapshot.text, selection: snapshot.selection)
     }
 
+    private func renderCompletion() {
+        guard let target, let session, !browsing else { return }
+        let caret = target.caret
+        let font = target.font
+        guard overlay.model.selected != nil else {
+            placeholderBackground = nil
+            maskRequestID = nil
+            maskAttempted = false
+            overlay.showCompletion(caret: caret, font: font, inline: false)
+            return
+        }
+        if !session.query.isEmpty || target.snapshot()?.text.isEmpty == false {
+            placeholderBackground = nil
+            maskRequestID = nil
+            maskAttempted = false
+            overlay.showCompletion(caret: caret, font: font)
+            return
+        }
+        if let background = placeholderBackground {
+            guard target.placeholderRegion == background.region else { cancel(); return }
+            overlay.showCompletion(caret: caret, font: font, background: background)
+            return
+        }
+        guard !maskAttempted, let region = target.placeholderRegion else {
+            if maskRequestID == nil { overlay.showCompletion(caret: caret, font: font, inline: false) }
+            return
+        }
+        maskAttempted = true
+        let requestID = UUID()
+        let token = generation
+        maskRequestID = requestID
+        overlay.hideForTyping()
+        PlaceholderBackgroundSampler.capture(region: region, excludingWindows: overlay.excludedWindowIDs, isCurrent: { [weak self] in
+            guard let self else { return false }
+            return self.generation == token && self.maskRequestID == requestID && self.session?.query.isEmpty == true
+                && target.isFocused() && target.placeholderRegion == region
+        }) { [weak self] background in
+            guard let self, self.generation == token, self.maskRequestID == requestID,
+                  self.session?.query.isEmpty == true, !self.browsing, target.isFocused() else { return }
+            self.maskRequestID = nil
+            guard target.placeholderRegion == region else { self.cancel(); return }
+            self.placeholderBackground = background
+            self.renderCompletion()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.generation == token, self.maskRequestID == requestID else { return }
+            self.maskRequestID = nil
+            self.renderCompletion()
+        }
+    }
+
     private func modifyHistory(_ mutation: () throws -> Void) {
         do {
             try mutation()
@@ -465,6 +525,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         handlingKeys = false
         browsing = false
         session = nil
+        placeholderBackground = nil
+        maskRequestID = nil
+        maskAttempted = false
         expectedQuery = CompletionSession()
         target = nil
         candidates = []

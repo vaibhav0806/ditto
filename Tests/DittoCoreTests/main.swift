@@ -19,6 +19,10 @@ func test(_ name: String, _ body: () throws -> Void) {
     print("\(before == failures ? "PASS" : "FAIL") \(name)")
 }
 let suite = CompletionTests()
+test("exact placeholder background color", testUniformBackgroundPreservesExactColor)
+test("reject ambiguous placeholder backgrounds", testAmbiguousBackgroundIsNotReplacedWithAnAverage)
+test("placeholder mask stays inside input", testMaskStaysInsideTheInputAndCoversThePlaceholderLine)
+test("rendered mask exact pixels and caret at 1x/2x", testRenderedMaskUsesExactSampleAndPreservesCaretTransparency)
 test("event query without AX document", suite.testEventQueryTracksTypingWithoutAnAccessibilityDocument)
 test("event query replacement boundaries", suite.testEventQueryCannotDeleteBeforeInvocationOrAcceptNonPrefixReplacement)
 test("event query Unicode and no-op", suite.testEventQueryPreservesUnicodeBoundariesAndHandlesNoOpAcceptance)

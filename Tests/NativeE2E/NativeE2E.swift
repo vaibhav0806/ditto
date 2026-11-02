@@ -1,6 +1,29 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import ScreenCaptureKit
+import DittoCore
+
+private final class MaskFixtureEditor: NSTextView {
+    var fill = NSColor(srgbRed: 17 / 255, green: 17 / 255, blue: 17 / 255, alpha: 1)
+    var textured = false
+
+    override func draw(_ dirtyRect: NSRect) {
+        fill.setFill()
+        bounds.fill()
+        if textured {
+            NSColor.gray.setFill()
+            for x in stride(from: 0, to: Int(bounds.width), by: 8) { NSRect(x: x, y: 0, width: 4, height: Int(bounds.height)).fill() }
+        }
+        super.draw(dirtyRect)
+        if string.isEmpty {
+            let placeholder = "Ask anything, @tag files/folders, use skills, or / for commands"
+            placeholder.draw(at: textContainerOrigin, withAttributes: [.font: font!, .foregroundColor: NSColor.gray])
+        }
+    }
+
+    override func didChangeText() { super.didChangeText(); needsDisplay = true }
+}
 
 // Opt-in developer runner: actual WindowServer events, no simulated completion calls.
 public final class NativeE2E {
@@ -20,6 +43,16 @@ public final class NativeE2E {
 
     public func start() {
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else { finish(error: "Ditto's OS event permissions are unavailable"); return }
+        if appID == "com.vaibhav0806.ditto" {
+            if CommandLine.arguments.contains("--e2e-mask-permission") {
+                results.append(["scenario": "screen capture access", "allowed": String(CGPreflightScreenCaptureAccess())])
+                finish()
+                return
+            }
+            guard CGPreflightScreenCaptureAccess() else { finish(error: "Screen Recording permission is required for the live mask test"); return }
+            runMaskFixture()
+            return
+        }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { finish(error: "Test app is not installed"); return }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
@@ -31,6 +64,122 @@ public final class NativeE2E {
                 self.after(0.6) { self.beginWhenActive() }
             }
         }
+    }
+
+    private func runMaskFixture() {
+        let editor = MaskFixtureEditor(frame: NSRect(x: 0, y: 0, width: 720, height: 230))
+        editor.identifier = NSUserInterfaceItemIdentifier("DittoPracticeEditor")
+        editor.drawsBackground = false
+        editor.isRichText = false
+        editor.allowsUndo = true
+        editor.font = .monospacedSystemFont(ofSize: 16, weight: .regular)
+        editor.textContainerInset = NSSize(width: 24, height: 24)
+        let window = NSWindow(contentRect: editor.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = "Ditto background-matching fixture"
+        window.contentView = editor
+        window.isReleasedWhenClosed = false
+        destinationWindow = window
+        expectedPID = ProcessInfo.processInfo.processIdentifier
+        NSApp.activate(ignoringOtherApps: true)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(editor)
+        after(0.5) {
+            guard self.type(self.token), self.key(0, flags: .maskCommand), self.key(8, flags: .maskCommand) else { return }
+            self.after(0.4) {
+                guard self.key(0, flags: .maskCommand), self.key(51) else { return }
+                self.after(0.4) { self.maskCase(editor, index: 0) }
+            }
+        }
+    }
+
+    private func maskCase(_ editor: MaskFixtureEditor, index: Int) {
+        let colors = [NSColor(srgbRed: 17 / 255, green: 17 / 255, blue: 17 / 255, alpha: 1), .white,
+                      NSColor(srgbRed: 34 / 255, green: 37 / 255, blue: 41 / 255, alpha: 1)]
+        guard index < 4 else { finish(); return }
+        editor.fill = colors[min(index, 2)]
+        editor.textured = index == 3
+        editor.insertionPointColor = index == 1 ? .black : .white
+        editor.textColor = editor.insertionPointColor
+        editor.needsDisplay = true
+        after(0.3) {
+            let top = NSScreen.screens.first!.frame.maxY
+            let nativeCaret = editor.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil)
+            let nativeField = editor.window!.convertToScreen(editor.convert(editor.bounds, to: nil))
+            let caret = CGRect(x: nativeCaret.minX, y: top - nativeCaret.maxY, width: nativeCaret.width, height: nativeCaret.height)
+            let field = CGRect(x: nativeField.minX, y: top - nativeField.maxY, width: nativeField.width, height: nativeField.height)
+            guard let region = PlaceholderMask.region(field: field, caret: caret) else { self.finish(error: "Fixture has no valid mask region"); return }
+            self.captureRegion(region) { before in
+                guard let before, self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                self.awaitMask(editor, index: index, region: region, before: before, attempts: 20)
+            }
+        }
+    }
+
+    private func awaitMask(_ editor: MaskFixtureEditor, index: Int, region: CGRect, before: CGImage, attempts: Int) {
+        after(0.1) {
+            let mask = NSApp.windows.first { $0.title == "Ditto placeholder mask" && $0.isVisible }
+            let ghost = NSApp.windows.first { $0.title == "Ditto completion" && $0.isVisible }
+            if index == 3 {
+                guard attempts == 1 else { self.awaitMask(editor, index: index, region: region, before: before, attempts: attempts - 1); return }
+                self.record("textured background refuses masking", passed: mask == nil)
+                let top = NSScreen.screens.first!.frame.maxY
+                self.record("textured preview avoids placeholder line", passed: ghost != nil && ghost!.frame.maxY < top - region.maxY + 4)
+                guard self.key(53) else { return }
+                self.finish()
+                return
+            }
+            guard let mask else {
+                if attempts > 1 { self.awaitMask(editor, index: index, region: region, before: before, attempts: attempts - 1) }
+                else { self.finish(error: "Solid background mask did not appear: case \(index)") }
+                return
+            }
+            self.record("mask case \(index) leaves draft empty", passed: editor.string.isEmpty)
+            self.record("mask case \(index) does not take focus", passed: !mask.canBecomeKey && mask.ignoresMouseEvents)
+            self.captureRegion(region) { after in
+                guard let after else { return }
+                self.checkMaskPixels(before: before, after: after, index: index)
+                guard self.type("di") else { return }
+                self.after(0.25) {
+                    self.record("mask case \(index) disappears on typing", passed: !mask.isVisible && editor.string == "di")
+                    guard self.key(53), self.key(0, flags: .maskCommand), self.key(51) else { return }
+                    self.after(0.25) { self.maskCase(editor, index: index + 1) }
+                }
+            }
+        }
+    }
+
+    private func captureRegion(_ region: CGRect, completion: @escaping (CGImage?) -> Void) {
+        guard #available(macOS 15.2, *) else { finish(error: "Mask fixture screenshot requires macOS 15.2"); return }
+        SCScreenshotManager.captureImage(in: region) { image, _ in
+            DispatchQueue.main.async {
+                guard image != nil else { self.finish(error: "Fixture screenshot failed"); return }
+                completion(image)
+            }
+        }
+    }
+
+    private func checkMaskPixels(before: CGImage, after: CGImage, index: Int) {
+        let source = NSBitmapImageRep(cgImage: before)
+        let masked = NSBitmapImageRep(cgImage: after)
+        func rgb(_ bitmap: NSBitmapImageRep, _ x: Int, _ y: Int) -> [Int]? {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+            return [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+        }
+        guard source.pixelsWide == masked.pixelsWide, source.pixelsHigh == masked.pixelsHigh, let reference = rgb(source, 0, 0) else {
+            finish(error: "Fixture screenshot dimensions changed"); return
+        }
+        var originalInk = 0
+        var remainingInk = 0
+        for y in 4..<(source.pixelsHigh - 4) {
+            for x in (source.pixelsWide / 2)..<(source.pixelsWide - 8) {
+                if rgb(source, x, y) != reference { originalInk += 1 }
+                if rgb(masked, x, y) != reference { remainingInk += 1 }
+            }
+        }
+        record("mask case \(index) removes placeholder pixels with exact background", passed: originalInk > 20 && remainingInk == 0)
+        let png = NSBitmapImageRep(cgImage: after).representation(using: .png, properties: [:])
+        try? png?.write(to: output.deletingPathExtension().appendingPathExtension("mask-\(index).png"))
     }
 
     private func beginWhenActive(attempts: Int = 20) {

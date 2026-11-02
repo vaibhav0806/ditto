@@ -45,3 +45,12 @@ The successful final results are `.build/e2e-textedit.json` and `.build/e2e-text
 ## Clipboard and fixture scope
 
 Core tests use named pasteboards and temporary databases. Native E2E deliberately uses the actual clipboard and live Ditto capture with generated fixture text; these fixture rows can appear in history. No personal clipboard payloads or document snapshots are included in logs or source control. Paste transactions restore the previous clipboard only after destination readback and only while they still own it; they never replay an uncertain insertion.
+
+
+## Placeholder mask iteration — live checks pending
+
+Current automated checks: 23 tests passed. New checks cover exact sampled colors (white, #111111, #222529), rejection of varying/transparent samples, mask geometry bounded inside the input, and actual AppKit mask rendering with exact RGBA fill and a transparent caret slot at both 1x and 2x (six rendered color/scale combinations).
+
+The new ScreenCaptureKit sampler and rendering path build successfully. A signed-app permission diagnostic returned `screen capture access: false`. The user approved enabling Screen Recording, but macOS requires local authentication before the app can be added. Live fixture pixel comparisons and native regression for this revision have not run yet. The earlier TextEdit results above belong to the preceding revision and are not substitutes for this iteration's live checks.
+
+The pending native `mask` scenario uses a disposable custom NSTextView fixture with placeholder text, three solid background colors, and a striped background. It is designed to compare original placeholder pixels with post-mask screen pixels, check that the draft remains empty, verify removal on typing, and reject masking on the striped background. This is not Slack/T3 cross-app proof. Those actual apps still require separate checks.

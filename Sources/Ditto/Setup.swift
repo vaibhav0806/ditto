@@ -5,10 +5,12 @@ import ApplicationServices
 final class SetupModel: ObservableObject {
     @Published var accessibility = AXIsProcessTrusted()
     @Published var input = CGPreflightListenEventAccess()
+    @Published var screen = CGPreflightScreenCaptureAccess()
     @Published var status = "Copy text, then invoke Ditto with ⌥⌘V."
     func refresh() {
         accessibility = AXIsProcessTrusted()
         input = CGPreflightListenEventAccess()
+        screen = CGPreflightScreenCaptureAccess()
     }
 }
 
@@ -45,6 +47,14 @@ struct SetupView: View {
                 Text("3 · Start local clipboard history").font(.headline)
                 Text("Saved only on this Mac for \(preferences.retentionDays) days. You can pause, exclude apps, or delete history at any time. macOS may ask you to allow clipboard access.").font(.callout).foregroundStyle(.secondary)
                 Button(preferences.captureEnabled ? "Check / enable clipboard access" : "Enable clipboard capture", action: enableCapture)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Background matching for empty fields").font(.headline)
+                Text("Screen Recording lets Ditto sample a narrow strip of the input's background to cover placeholder text. Samples stay in memory and are discarded when you type or dismiss.").font(.callout).foregroundStyle(.secondary)
+                Button(model.screen ? "Background sampling allowed ✓" : "Allow background sampling…") {
+                    _ = CGRequestScreenCaptureAccess()
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                }
             }
             Text(model.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {

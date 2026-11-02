@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import DittoCore
+import DittoCapture
 
 final class OverlayModel: ObservableObject {
     @Published var history = false
@@ -121,10 +122,21 @@ final class OverlayController {
     let model = OverlayModel()
     private let panel: SuggestionPanel
     private let ghost = SuggestionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let mask = SuggestionPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private var appliedBackground: PlaceholderBackground?
+    var excludedWindowIDs: Set<CGWindowID> { Set([ghost, mask, panel].filter { $0.windowNumber > 0 }.map { CGWindowID($0.windowNumber) }) }
     var onResign: (() -> Void)?
     private var observer: NSObjectProtocol?
 
     init() {
+        mask.level = .floating
+        mask.isFloatingPanel = true
+        mask.hidesOnDeactivate = false
+        mask.isOpaque = false
+        mask.backgroundColor = .clear
+        mask.hasShadow = false
+        mask.ignoresMouseEvents = true
+        mask.title = "Ditto placeholder mask"
         ghost.level = .floating
         ghost.isFloatingPanel = true
         ghost.hidesOnDeactivate = false
@@ -149,6 +161,7 @@ final class OverlayController {
     }
 
     func show(history: Bool, caret: CGRect? = nil) {
+        mask.orderOut(nil)
         model.history = history
         panel.acceptsInput = history
         panel.ignoresMouseEvents = !history
@@ -165,7 +178,7 @@ final class OverlayController {
         if history { panel.makeKeyAndOrderFront(nil) } else { panel.orderFrontRegardless() }
     }
 
-    func showCompletion(caret: CGRect?, font: NSFont) {
+    func showCompletion(caret: CGRect?, font: NSFont, background: PlaceholderBackground? = nil, inline: Bool = true) {
         panel.orderOut(nil)
         guard let caret else { showNotice("Cursor position unavailable · ⌘L for history"); return }
         guard let selected = model.selected else {
@@ -174,12 +187,22 @@ final class OverlayController {
         }
         let range = model.query.isEmpty ? selected.text.startIndex..<selected.text.startIndex : selected.text.range(of: model.query, options: [.caseInsensitive, .diacriticInsensitive])
         let isPrefix = range?.lowerBound == selected.text.startIndex
+        if let background {
+            if appliedBackground != background || !mask.isVisible {
+                let top = NSScreen.screens.first?.frame.maxY ?? 0
+                let rect = background.region
+                mask.contentView = PlaceholderMaskView(background: background, caret: caret)
+                mask.setFrame(CGRect(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height), display: true)
+                mask.orderFrontRegardless()
+                appliedBackground = background
+            }
+        } else { mask.orderOut(nil); appliedBackground = nil }
         let completion = isPrefix ? String(selected.text[(range?.upperBound ?? selected.text.startIndex)...]) : selected.text
         let firstLine = completion.components(separatedBy: .newlines).first ?? ""
         let value = firstLine + (completion.contains("\n") ? " …" : "")
         let label = NSTextField(labelWithString: value.isEmpty ? "⇥" : value)
         label.font = font
-        label.textColor = .secondaryLabelColor
+        label.textColor = background?.ink ?? .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail
         label.setAccessibilityLabel("Ditto completion")
         label.sizeToFit()
@@ -196,10 +219,11 @@ final class OverlayController {
         content.setFrameSize(NSSize(width: max(width, 240), height: lineHeight + 16))
         let size = content.frame.size
         ghost.contentView = content
-        placeGhost(size: size, caret: caret, inline: isPrefix)
+        placeGhost(size: size, caret: caret, inline: isPrefix && inline)
     }
 
     func showNotice(_ message: String, caret: CGRect? = nil) {
+        mask.orderOut(nil)
         panel.orderOut(nil)
         let label = NSTextField(labelWithString: message)
         label.font = .systemFont(ofSize: 11)
@@ -230,6 +254,7 @@ final class OverlayController {
         ghost.orderFrontRegardless()
     }
 
-    func hide() { panel.orderOut(nil); ghost.orderOut(nil) }
+    func hideForTyping() { mask.orderOut(nil); ghost.orderOut(nil); appliedBackground = nil }
+    func hide() { panel.orderOut(nil); hideForTyping() }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 }

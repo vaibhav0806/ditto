@@ -45,3 +45,16 @@ Execute inline, as requested by the user. Keep existing shortcut and explicit-hi
 - [x] Connect typed-event query tracking, tagged suffix injection, and caret text-marker/previous-glyph fallbacks. Only exact single-line prefix candidates are offered through this path.
 - [x] Exercise the actual global shortcut in TextEdit using the existing opt-in native runner, including a forced event-query route. Verify appearance and actual text separately; record undo behavior rather than assume it.
 - [x] Run automated checks and signed release build; update verification/PRD; commit and push. Do not infer Ghostty or WhatsApp support from another app. Existing computer-use denial for Ghostty remains a live test limitation; no alternate automation bypass.
+
+
+## Pixel-matched placeholder masking prototype
+
+Spec: user requested the existing placeholder visually disappear with the exact app background, without inserting content. macOS exposes the placeholder attribute as read-only.
+
+- [x] Test flat-color detection, gradient/texture rejection, input-bounded geometry, and actual rendered RGBA/caret transparency at 1x/2x.
+- [x] Add narrow-region ScreenCaptureKit sampling, excluded overlay windows, permission preflight, and stale-focus/generation checks. Captured pixels are never persisted by the product.
+- [x] Add a separate non-activating mask that leaves the native caret visible, hides on typing/cancel, and falls back below the line when no exact sampled color is available.
+- [ ] Verify live source-vs-mask pixels in dark/white/gray fixtures, removal on typing, and texture rejection with OS Screen Recording permission.
+- [ ] Run native regression, record precise limitations, commit/push, and restart the app normally.
+
+Limits: matching sampled border colors is evidence of a flat field, not proof of the hidden pixels beneath every glyph. Gradients/textures and wrapped placeholders cannot be promised seamless. The initial prototype targets a single placeholder line and requires macOS 14+ plus Screen Recording for capture. Full cross-app verification remains open.
