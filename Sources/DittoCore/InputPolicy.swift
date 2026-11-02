@@ -11,7 +11,7 @@ public enum InputPolicy {
         text.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) || $0.value == 0x200B || $0.value == 0xFEFF }
     }
 
-    public static func allowsInlineCompletion(query: String, hasMask: Bool) -> Bool { !query.isEmpty || hasMask }
+    public static func allowsInlineCompletion(query: String, hasMask: Bool, hasExistingText: Bool = false) -> Bool { !query.isEmpty || hasMask || hasExistingText }
 
     public static func permitsBackgroundRead(access: Int) -> Bool { access == 0 || access == 2 }
     public static func captureEnabled(saved: Bool?) -> Bool { saved ?? true }

@@ -483,20 +483,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             overlay.showCompletion(caret: caret, font: font, inline: false)
             return
         }
-        if !session.query.isEmpty {
+        let hasExistingText = target.snapshot().map { !InputPolicy.isVisuallyBlank($0.text) } ?? false
+        if !session.query.isEmpty || hasExistingText {
             placeholderBackground = nil
             maskRequestID = nil
             maskAttempted = false
-            overlay.showCompletion(caret: caret, font: font)
+            overlay.showCompletion(caret: caret, font: font, hasExistingText: hasExistingText, field: target.fieldBounds)
             return
         }
         if let background = placeholderBackground {
             guard target.placeholderRegion == background.region else { cancel(); return }
-            overlay.showCompletion(caret: caret, font: font, background: background)
+            overlay.showCompletion(caret: caret, font: font, background: background, field: target.fieldBounds)
             return
         }
         guard !maskAttempted, let region = target.placeholderRegion else {
-            if maskRequestID == nil { overlay.showCompletion(caret: caret, font: font, inline: false) }
+            if maskRequestID == nil { overlay.showCompletion(caret: caret, font: font, inline: false, field: target.fieldBounds) }
             return
         }
         maskAttempted = true

@@ -68,7 +68,7 @@ final class OverlayController {
         } else { panel.orderFrontRegardless() }
     }
 
-    func showCompletion(caret: CGRect?, font: NSFont, background: PlaceholderBackground? = nil, inline: Bool = true) {
+    func showCompletion(caret: CGRect?, font: NSFont, background: PlaceholderBackground? = nil, inline: Bool = true, hasExistingText: Bool = false, field: CGRect? = nil) {
         panel.orderOut(nil)
         guard let caret else { showNotice("Cursor position unavailable · ⌘L for history"); return }
         guard let selected = model.selected else {
@@ -93,23 +93,24 @@ final class OverlayController {
         let label = NSTextField(labelWithString: value.isEmpty ? "⇥" : value)
         label.font = font
         label.textColor = background?.ink ?? .secondaryLabelColor
+        label.maximumNumberOfLines = 1
+        label.cell?.usesSingleLineMode = true
+        label.cell?.truncatesLastVisibleLine = true
         label.lineBreakMode = .byTruncatingTail
         label.setAccessibilityLabel("Ditto completion")
         label.sizeToFit()
-        let width = min(max(label.frame.width + 4, 24), 600)
-        let lineHeight = max(caret.height, font.ascender - font.descender + font.leading + 4)
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: lineHeight + 16))
-        label.frame = NSRect(x: 0, y: 16, width: width, height: lineHeight)
-        let hint = NSTextField(labelWithString: "⇥ accept   ↑↓   \(model.selectedIndex + 1)/\(model.entries.count)   ⌘L history")
-        hint.font = .systemFont(ofSize: 9)
-        hint.textColor = .tertiaryLabelColor
-        hint.frame = NSRect(x: 1, y: 0, width: max(width, 240), height: 14)
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let point = NSPoint(x: caret.minX, y: top - caret.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let right = min(field?.maxX ?? screen.visibleFrame.maxX, screen.visibleFrame.maxX)
+        let width = min(max(label.frame.width + 4, 24), 600, max(1, right - caret.minX - 4))
+        let lineHeight = caret.height
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: lineHeight))
+        label.frame = content.bounds
         content.addSubview(label)
-        content.addSubview(hint)
-        content.setFrameSize(NSSize(width: max(width, 240), height: lineHeight + 16))
         let size = content.frame.size
         ghost.contentView = content
-        placeGhost(size: size, caret: caret, inline: isPrefix && inline && InputPolicy.allowsInlineCompletion(query: model.query, hasMask: background != nil))
+        placeGhost(size: size, caret: caret, inline: isPrefix && inline && InputPolicy.allowsInlineCompletion(query: model.query, hasMask: background != nil, hasExistingText: hasExistingText))
     }
 
     func showNotice(_ message: String, caret: CGRect? = nil) {
@@ -140,8 +141,8 @@ final class OverlayController {
         let bounds = screen.visibleFrame
         let below = point.y - size.height - 5
         let above = caret.map { top - $0.minY + 5 } ?? point.y + 5
-        let y = inline ? point.y - 16 : (below >= bounds.minY + 4 ? below : above)
-        let origin = NSPoint(x: min(max(point.x, bounds.minX + 4), bounds.maxX - size.width - 4), y: min(max(y, bounds.minY + 4), bounds.maxY - size.height - 4))
+        let y = inline ? point.y : (below >= bounds.minY + 4 ? below : above)
+        let origin = NSPoint(x: inline ? point.x : min(max(point.x, bounds.minX + 4), bounds.maxX - size.width - 4), y: min(max(y, bounds.minY + 4), bounds.maxY - size.height - 4))
         ghost.setFrame(NSRect(origin: origin, size: size), display: true)
         ghost.orderFrontRegardless()
     }

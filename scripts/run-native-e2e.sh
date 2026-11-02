@@ -9,11 +9,12 @@ case "${1:-textedit}" in
   textedit-events) ditto_target=com.apple.TextEdit ;;
   history-textedit) ditto_target=com.apple.TextEdit ;;
   mask) ditto_target=com.vaibhav0806.ditto ;;
+  prefilled) ditto_target=com.vaibhav0806.ditto ;;
   mask-status) ditto_target=com.vaibhav0806.ditto ;;
   history-ui) ditto_target=com.vaibhav0806.ditto ;;
   t3) ditto_target=com.t3tools.t3code ;;
   slack) ditto_target=com.tinyspeck.slackmacgap ;;
-  *) printf '%s\n' 'Usage: run-native-e2e.sh [textedit|textedit-events|history-textedit|history-ui|mask|mask-status|t3|slack|chrome|ghostty]' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: run-native-e2e.sh [textedit|textedit-events|history-textedit|history-ui|prefilled|mask|mask-status|t3|slack|chrome|ghostty]' >&2; exit 2 ;;
 esac
 ditto_app="$ditto_root/build/Ditto.app"
 ditto_result="$ditto_root/.build/e2e-${1:-textedit}.json"
@@ -27,7 +28,9 @@ for line in subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True).spl
         os.kill(int(parts[0]), signal.SIGTERM)
 PY
 rm -f "$ditto_result"
-if [[ "${1:-textedit}" == history-textedit ]]; then
+if [[ "${1:-textedit}" == prefilled ]]; then
+    open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-prefilled
+elif [[ "${1:-textedit}" == history-textedit ]]; then
     open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-history-textedit
 elif [[ "${1:-textedit}" == history-ui ]]; then
     open -n "$ditto_app" --args --native-e2e "$ditto_result" --e2e-app "$ditto_target" --e2e-history-ui

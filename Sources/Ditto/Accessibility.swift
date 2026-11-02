@@ -15,20 +15,21 @@ struct TextTarget {
     let pid: pid_t
     var isNative: Bool { nativeView != nil }
     var caret: CGRect? { caretBounds() }
-    var placeholderRegion: CGRect? {
-        guard let snapshot = snapshot(), InputPolicy.isVisuallyBlank(snapshot.text), let caret else { return nil }
-        let frame: CGRect
+    var fieldBounds: CGRect? {
         if let nativeView, let window = nativeView.window {
             let rect = window.convertToScreen(nativeView.convert(nativeView.bounds, to: nil))
             let top = NSScreen.screens.first?.frame.maxY ?? 0
-            frame = CGRect(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height)
+            return CGRect(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height)
         } else if let element, let position = Self.attribute(element, kAXPositionAttribute), let size = Self.attribute(element, kAXSizeAttribute),
                   CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() {
             var point = CGPoint.zero
             var dimensions = CGSize.zero
             guard AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { return nil }
-            frame = CGRect(origin: point, size: dimensions)
+            return CGRect(origin: point, size: dimensions)
         } else { return nil }
+    }
+    var placeholderRegion: CGRect? {
+        guard let snapshot = snapshot(), InputPolicy.isVisuallyBlank(snapshot.text), let caret, let frame = fieldBounds else { return nil }
         return PlaceholderMask.region(field: frame, caret: caret)
     }
     var font: NSFont {

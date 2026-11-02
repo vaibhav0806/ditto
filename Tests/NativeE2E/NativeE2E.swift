@@ -104,7 +104,58 @@ public final class NativeE2E {
             guard self.type(self.token), self.key(0, flags: .maskCommand), self.key(8, flags: .maskCommand) else { return }
             self.after(0.4) {
                 guard self.key(0, flags: .maskCommand), self.key(51) else { return }
-                self.after(0.4) { self.maskCase(editor, index: 0) }
+                self.after(0.4) {
+                    if CommandLine.arguments.contains("--e2e-prefilled") { self.prefilledCase(editor, index: 0) }
+                    else { self.maskCase(editor, index: 0) }
+                }
+            }
+        }
+    }
+
+    private func prefilledCase(_ editor: MaskFixtureEditor, index: Int) {
+        let drafts = [("Existing draft ", ""), ("First line\nExisting draft ", ""), ("Existing draft ", "\nFollowing line"), (String(repeating: "x", count: 60) + " ", "")]
+        guard index < drafts.count else { finish(); return }
+        let (before, afterCaret) = drafts[index]
+        let original = before + afterCaret
+        editor.string = original
+        editor.setSelectedRange(NSRange(location: before.utf16.count, length: 0))
+        editor.undoManager?.removeAllActions()
+        guard key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+        after(0.3) {
+            guard let ghost = NSApp.windows.first(where: { $0.title == "Ditto completion" && $0.isVisible }),
+                  let label = ghost.contentView?.subviews.first as? NSTextField else { self.record("prefilled case \(index) shows suggestion", passed: false); return }
+            let caret = editor.firstRect(forCharacterRange: editor.selectedRange(), actualRange: nil)
+            let labelRect = ghost.convertToScreen(label.convert(label.bounds, to: nil))
+            let field = editor.window!.convertToScreen(editor.convert(editor.bounds, to: nil))
+            if let layout = editor.layoutManager, before.utf16.count > 0 {
+                let glyph = layout.glyphIndexForCharacter(at: before.utf16.count - 1)
+                let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let baseline = editor.window!.convertPoint(toScreen: editor.convert(NSPoint(x: 0, y: editor.textContainerOrigin.y + line.minY + layout.location(forGlyphAt: glyph).y), to: nil)).y
+                let labelBaseline = labelRect.maxY - label.firstBaselineOffsetFromTop
+                self.results.append(["scenario": "prefilled case \(index) baseline", "offset": String(Double(labelBaseline - baseline)), "labelHeight": String(Double(labelRect.height)), "caretHeight": String(Double(caret.height))])
+                self.record("prefilled case \(index) matches the host baseline", passed: abs(labelBaseline - baseline) <= 1)
+            }
+            self.results.append(["scenario": "prefilled case \(index) geometry", "verticalOffset": String(Double(labelRect.midY - caret.midY))])
+            self.record("prefilled case \(index) shares caret line inside field", passed: abs(labelRect.midY - caret.midY) <= 4 && abs(labelRect.minX - caret.minX) <= 1 && field.contains(labelRect))
+            self.record("prefilled case \(index) keeps existing text untouched", passed: editor.string == original)
+            self.record("prefilled case \(index) needs no placeholder mask", passed: !NSApp.windows.contains { $0.title == "Ditto placeholder mask" && $0.isVisible })
+            guard !self.finished else { return }
+            let top = NSScreen.screens.first!.frame.maxY
+            self.captureRegion(CGRect(x: field.minX, y: top - field.maxY, width: field.width, height: field.height)) { image in
+                guard !self.finished, NSWorkspace.shared.frontmostApplication?.processIdentifier == self.expectedPID else { self.finish(error: "Prefilled fixture lost focus"); return }
+                if let image, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) { try? png.write(to: self.output.deletingPathExtension().appendingPathExtension("prefilled-\(index).png")) }
+                guard self.key(53) else { return }
+                self.after(0.15) {
+                    self.record("prefilled case \(index) Escape preserves draft", passed: editor.string == original && !ghost.isVisible)
+                    guard self.key(9, flags: [.maskCommand, .maskAlternate]) else { return }
+                    self.after(0.25) {
+                        guard self.key(48) else { return }
+                        self.after(0.25) {
+                            self.record("prefilled case \(index) inserts at caret without replacing existing text", passed: editor.string == before + self.token + afterCaret)
+                            self.prefilledCase(editor, index: index + 1)
+                        }
+                    }
+                }
             }
         }
     }
@@ -509,10 +560,27 @@ public final class NativeE2E {
               let content = window.contentView else { record("inline ghost visible", passed: false); return }
         results.append(["scenario": "ghost dimensions", "width": String(Double(window.frame.width)), "height": String(Double(window.frame.height))])
         record("inline ghost does not take focus", passed: !window.canBecomeKey)
-        record("inline ghost has nonzero compact size", passed: window.frame.height >= 20 && window.frame.height < 80 && window.frame.width > 20)
+        record("inline ghost has nonzero compact size", passed: window.frame.height > 0 && window.frame.height < 80 && window.frame.width > 20)
         let texts = content.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
         guard texts.first == token else { record("ghost suggests fresh clipboard item", passed: false); return }
         record("ghost suggests fresh clipboard item", passed: true)
+        if appID == "com.apple.TextEdit", let fixture, read(fixture) == "External ",
+           let label = content.subviews.first as? NSTextField, let selection = selection(fixture) {
+            var range = CFRange(location: selection.location, length: 0)
+            var value: CFTypeRef?
+            var caret = CGRect.zero
+            guard let parameter = AXValueCreate(.cfRange, &range),
+                  AXUIElementCopyParameterizedAttributeValue(fixture, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &value) == .success,
+                  let value, CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetValue(value as! AXValue, .cgRect, &caret), caret.height > 0 else {
+                record("populated field exposes caret bounds", passed: false); return
+            }
+            let labelRect = window.convertToScreen(label.convert(label.bounds, to: nil))
+            let top = NSScreen.screens.first!.frame.maxY
+            let offset = labelRect.midY - (top - caret.midY)
+            results.append(["scenario": "populated-field line geometry", "verticalOffset": String(Double(offset)), "caretHeight": String(Double(caret.height))])
+            record("initial populated-field suggestion shares the caret line", passed: abs(offset) <= 4)
+            guard !finished else { return }
+        }
         let font = (content.subviews.first as? NSTextField)?.font
         results.append(["scenario": "rendered font", "name": font?.fontName ?? "none", "size": String(Double(font?.pointSize ?? 0)), "fixedPitch": String(font?.isFixedPitch ?? false)])
         if let expectedPointSize {

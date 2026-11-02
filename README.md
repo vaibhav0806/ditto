@@ -66,9 +66,10 @@ The opt-in native runner uses real system-wide keys and the real clipboard in a 
 ./scripts/run-native-e2e.sh textedit
 ./scripts/run-native-e2e.sh textedit-events
 ./scripts/run-native-e2e.sh history-textedit
+./scripts/run-native-e2e.sh prefilled
 ```
 
-The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state. `history-textedit` focuses on the redesigned panel: filter without editing the host, no-result Return, Escape back to the original query, real history paste, and undo.
+`prefilled` uses generated native text fields to check baseline, line-end position, Escape and insertion with an existing draft. The second command forces event-query tracking in TextEdit; it does not establish behavior in an app without readable AX state. `history-textedit` focuses on the redesigned panel: filter without editing the host, no-result Return, Escape back to the original query, real history paste, and undo.
 
 With Screen Recording enabled, `./scripts/run-native-e2e.sh history-ui` captures the real panel over generated sample content in dark/light/high-contrast appearances and checks OS keyboard navigation, filtering and Actions. It never reads clipboard history or pastes into another app. High contrast is a per-window appearance override, not a change to the system setting. Its acceptance assertion checks callback dispatch; external insertion is covered separately by `history-textedit`.
 
